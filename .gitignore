@@ -1,0 +1,28 @@
+# 실행 결과와 로그
+result/
+
+# CT 프로젝트·보고서·설정 실물 (고객 데이터)
+CLI.ini
+*.ini
+*.cpi
+*.utest
+*.itest
+*.export
+*.csd
+*.xlsx
+*.xls
+*.docx
+*.pdf
+*.pptx
+*.html
+
+# Python과 운영체제 파일
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.DS_Store
+Thumbs.db
+
+# 이름을 지운 예제만 명시적으로 포함
+!examples/**/*.example.*
