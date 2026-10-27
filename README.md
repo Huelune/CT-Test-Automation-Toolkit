@@ -2,8 +2,8 @@
 
 슈어소프트 CT(Controller Tester)로 단위 테스트를 돌리고 결과물을 정리하는 과정을
 자동화하는 Python 도구입니다. CT가 이미 하는 일(테스트·스텁 생성, 실행, 커버리지 측정,
-보고서 생성)은 CT CLI(`UtCLI.exe`)로 부르고, 그 앞뒤의 반복 작업(CLI.ini 준비, 보고서
-요약, 커버리지 미달 목록, 팀 산출물 양식 채우기)을 맡습니다.
+보고서 생성)은 CT CLI(2023 이후 `csc.exe`, 3.x 이하 `UtCLI.exe`)로 부르고, 그 앞뒤의 반복
+작업(CLI.ini 준비, 보고서 요약, 커버리지 미달 목록, 팀 산출물 양식 채우기)을 맡습니다.
 
 저장소: [Huelune/CT-Test-Automation-Toolkit](https://github.com/Huelune/CT-Test-Automation-Toolkit)
 
@@ -16,7 +16,7 @@
 | --- | --- |
 | Windows | CT가 설치된 서버 PC |
 | Python | 3.8 이상 (`python` 또는 `py -3`) |
-| CT | `UtCLI.exe`가 있는 설치본 |
+| CT | `csc.exe`(2023 이후) 또는 `UtCLI.exe`(3.x 이하)가 있는 설치본 |
 | openpyxl | XLSX 보고서를 읽는 기능에서만 필요 (`pip install -r requirements.txt`) |
 
 ## 서버 PC에서 처음 준비하기
@@ -35,7 +35,7 @@ ct.bat selfcheck
 
 | 명령 | 하는 일 |
 | --- | --- |
-| `ct.bat selfcheck` | Python, openpyxl, `UtCLI.exe`, 로그 폴더 쓰기, git을 점검하고 한 화면에 요약 |
+| `ct.bat selfcheck` | Python, openpyxl, CT CLI(`csc.exe`, `UtCLI.exe`), 로그 폴더 쓰기, git을 점검하고 한 화면에 요약 |
 | `ct.bat version` | 툴킷 버전 |
 
 모든 명령은 `result/logs/<yyyyMMdd_HHmmss>_<명령>.log`에 실행 로그를 남깁니다. 콘솔에는

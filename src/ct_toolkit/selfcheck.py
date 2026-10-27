@@ -20,7 +20,9 @@ from . import paths
 from .log import RunLog
 
 MIN_PYTHON = (3, 8)
-# CT 3.6 매뉴얼 CLI Execution 기준 위치: <CT 설치 폴더>\plugins\com.codescroll.ut_ut_3.x.x\bin
+# CT 2023 이후: <CT 설치 폴더>\csc.exe (2026.06 매뉴얼 CI/CD)
+CSC_NAME = 'csc.exe'
+# CT 3.x 이하: <CT 설치 폴더>\plugins\com.codescroll.ut_ut_3.x.x\bin (3.6 매뉴얼 CLI Execution)
 UTCLI_GLOB = os.path.join('plugins', 'com.codescroll.ut*', 'bin', 'UtCLI.exe')
 
 OK, WARN, FAIL = 'OK', 'WARN', 'FAIL'
@@ -50,27 +52,33 @@ def check_openpyxl(importer: Callable[[str], object] = __import__) -> Check:
     return Check('openpyxl', OK, 'openpyxl {}'.format(getattr(module, '__version__', '?')), False)
 
 
-def find_utcli(environ: Mapping[str, str]) -> Check:
-    """`CT_UTCLI`(파일 경로)를 먼저 보고, 없으면 `CT_HOME` 아래를 찾는다."""
+def find_ct_cli(environ: Mapping[str, str]) -> Check:
+    """CT CLI를 찾는다. `CT_UTCLI`(파일 경로)를 먼저 보고, 없으면 `CT_HOME` 아래에서
+    `csc.exe`(2023 이후)와 `UtCLI.exe`(3.x 이하)를 둘 다 찾아 찾은 것을 모두 찍는다."""
     direct = environ.get('CT_UTCLI', '').strip().strip('"')
     if direct:
         if Path(direct).is_file():
-            return Check('utcli', OK, 'UtCLI.exe (CT_UTCLI)', True)
-        return Check('utcli', FAIL, 'CT_UTCLI가 가리키는 파일이 없음', True)
+            return Check('ct_cli', OK, 'UtCLI.exe (CT_UTCLI)', True)
+        return Check('ct_cli', FAIL, 'CT_UTCLI가 가리키는 파일이 없음', True)
 
     home = environ.get('CT_HOME', '').strip().strip('"')
     if not home:
-        return Check('utcli', FAIL, 'CT_HOME, CT_UTCLI 둘 다 설정 안 됨', True)
+        return Check('ct_cli', FAIL, 'CT_HOME, CT_UTCLI 둘 다 설정 안 됨', True)
     if not Path(home).is_dir():
-        return Check('utcli', FAIL, 'CT_HOME 폴더가 없음', True)
+        return Check('ct_cli', FAIL, 'CT_HOME 폴더가 없음', True)
 
+    found = [CSC_NAME] if Path(home, CSC_NAME).is_file() else []
+    where = 'CT_HOME'
     matches = sorted(glob.glob(os.path.join(home, UTCLI_GLOB)))
-    if not matches:
-        return Check('utcli', FAIL,
-                     'CT_HOME 아래 plugins\\com.codescroll.ut*\\bin\\UtCLI.exe 없음', True)
-    plugin = Path(matches[-1]).parent.parent.name
-    extra = '' if len(matches) == 1 else ', 후보 {}개 중 마지막'.format(len(matches))
-    return Check('utcli', OK, 'UtCLI.exe (CT_HOME, {}{})'.format(plugin, extra), True)
+    if matches:
+        found.append('UtCLI.exe')
+        where += ', ' + Path(matches[-1]).parent.parent.name
+        if len(matches) > 1:
+            where += ', 후보 {}개 중 마지막'.format(len(matches))
+    if not found:
+        return Check('ct_cli', FAIL, 'CT_HOME 아래 csc.exe, '
+                     'plugins\\com.codescroll.ut*\\bin\\UtCLI.exe 둘 다 없음', True)
+    return Check('ct_cli', OK, '{} ({})'.format(', '.join(found), where), True)
 
 
 def check_log(log: RunLog) -> Check:
@@ -97,7 +105,7 @@ def run_checks(log: RunLog, environ: Optional[Mapping[str, str]] = None) -> List
     for label, func in (
         ('Python', check_python),
         ('openpyxl', check_openpyxl),
-        ('UtCLI 탐색', lambda: find_utcli(environ)),
+        ('CT CLI 탐색', lambda: find_ct_cli(environ)),
         ('로그 쓰기', lambda: check_log(log)),
         ('git', check_git),
         ('콘솔', check_console),

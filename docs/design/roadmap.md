@@ -20,8 +20,9 @@ CT 단위 테스트를 돌리고 결과물을 정리하는 과정에서 자동�
 
 순서는 잠정이다. 각 항목은 서버 PC 실행으로 확인하기 전까지 미검증이다.
 
-1. **CLI.ini 생성과 UtCLI 실행 래퍼.** 템플릿에서 섹션을 켜고 끄는 설정으로 CLI.ini를
-   만들고 `UtCLI.exe`를 돌린다. 종료 코드와 소요 시간을 로그에 남긴다.
+1. **CLI.ini 생성과 CT CLI 실행 래퍼.** 템플릿에서 섹션을 켜고 끄는 설정으로 CLI.ini를
+   만들고 CT CLI(2023 이후 `csc.exe`, 3.x 이하 `UtCLI.exe`)를 돌린다. 종료 코드와 소요 시간을
+   로그에 남긴다. 어느 CLI인지는 `todo.md` 1절 결과로 정한다.
 2. **XLSX 보고서 요약.** CT 보고서에서 함수별 Pass/Fail, 커버리지를 읽어 한 장으로
    요약한다. 보고서 구조는 서버 PC의 실물(이름을 지운 사본)을 보고 정한다.
 3. **커버리지 목표 미달 목록.** 목표(예: Branch 100%, MC/DC)에 못 미친 함수를 뽑아
@@ -40,6 +41,8 @@ CT 단위 테스트를 돌리고 결과물을 정리하는 과정에서 자동�
 ## 근거
 
 - CT 2026.06 개요: https://www.manula.com/manuals/codescroll/controller-tester/2026.06/en/topic/ct-overview
+- CI/CD, `csc.exe` 위치 (2026.06): https://www.manula.com/manuals/codescroll/controller-tester/2026.06/ko/topic/ci-cd
+- CLI 프로젝트 생성·실행 (2026.06): https://www.manula.com/manuals/codescroll/controller-tester/2026.06/ko/topic/cli-project-execution
 - CLI Setting (3.6): https://www.manula.com/manuals/codescroll/controller-tester/3.6/en/topic/cli-setting
 - CLI Execution (3.6): https://www.manula.com/manuals/codescroll/controller-tester/3.6/en/topic/cli-excution
 - Jenkins 플러그인 (2026.06): https://www.manula.com/manuals/codescroll/controller-tester-user-guides/2026.06/en/topic/jenkins-plugin
