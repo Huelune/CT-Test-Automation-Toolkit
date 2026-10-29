@@ -47,6 +47,17 @@ class MatchTest(unittest.TestCase):
         self.assertEqual(got.skips, [Skip(2, 'dmy_f', 'dmy_x', R_MULTI)])
         self.assertEqual(got.applied, {'kb': {'dmy_x': 'out'}})
 
+    def test_file_mismatch_with_single_test_is_not_exported(self) -> None:
+        # 파일이 다른 같은 이름 함수만 내보냈으면 그 테스트를 바꾸지 않는다
+        a = _test('ka', 'dmy_f', 'src\\a.c', dmy_x=CtVar('dmy_x', ''))
+        got = match([_row(2, 'dmy_f', 'dmy_x', file='b.c')], [a])
+        self.assertEqual((got.applied, got.not_exported, got.skips), ({}, ['dmy_f'], []))
+
+    def test_file_unknown_in_test_still_applies(self) -> None:
+        t = _test('k1', 'dmy_f', '', dmy_x=CtVar('dmy_x', ''))
+        got = match([_row(2, 'dmy_f', 'dmy_x', file='b.c')], [t])
+        self.assertEqual(got.applied, {'k1': {'dmy_x': 'in'}})
+
     def test_unknown_variable_skipped(self) -> None:
         got = match([_row(2, 'dmy_calc', 'dmy_typo')], [_test('k1', 'dmy_calc')])
         self.assertEqual(got.skips, [Skip(2, 'dmy_calc', 'dmy_typo', R_NO_VAR)])

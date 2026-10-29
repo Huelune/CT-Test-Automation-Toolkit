@@ -99,6 +99,9 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
                 skip(r, R_MULTI)
                 continue
         test = candidates[0]
+        if r.file and test.file and _file_key(test.file) != _file_key(r.file):
+            not_exported.add(r.function)  # 파일이 다른 같은 이름 함수만 내보냈다
+            continue
         var = test.variables.get(r.variable)
         if var is None:
             skip(r, R_NO_VAR)
