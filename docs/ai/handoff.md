@@ -29,8 +29,12 @@
   (`csc.exe -e -w <워크스페이스> --ini -O <CLI.ini>`, 2026.06 매뉴얼 CI/CD·CLI 프로젝트 실행),
   3.x 이하는 `plugins\com.codescroll.ut*\bin\UtCLI.exe`(3.6 매뉴얼 CLI Execution)다.
 - 다음 할 일: 로드맵 1번 [목록대로 입력·출력 지정하기](../design/io-designation.md). 설계는
-  2026-10-29 승인, 파일 형식과 상관없는 1차는 [구현 계획](../design/io-designation-plan.md)대로
-  한다. CT 파일 형식은 todo.md 2절 견본 결과 대기. 나머지 후보는 [로드맵](../design/roadmap.md).
+  2026-10-29 승인. 파일 형식과 상관없는 1차([구현 계획](../design/io-designation-plan.md))는
+  main에 있다. CT 파일을 고치는 2차(`--export`)는 todo.md 4절(다시 가져오기, CSV 원문) 결과를 본
+  뒤 계획한다. 나머지 후보는 [로드맵](../design/roadmap.md).
+- CT 2025 [테스트 내보내기]의 입력·출력 지정은 `UNITTESTS\<테스트 이름>.csv`의 머리글 줄
+  (`<input>`, `<expect>`, `<output>`, `<toutput>` 구역)에 담기고 `testInfo.export`는 바뀌지 않는다
+  (2026-10-29 todo.md 2절). 자세한 것은 설계 문서의 "견본 결과".
 
 ## 브랜치 지도
 
