@@ -89,7 +89,7 @@ Codebeamer에서 내보낸 목록이 툴킷 형식(첫 시트, 첫 줄 머리글
 prompt $G
 set "CTLIST=<Codebeamer에서 내보낸 목록.xlsx 전체 경로>"
 cls
-git pull
+git pull -q
 ct.bat io-apply --list examples\ct_sample\io_list.example.xlsx
 echo exit=%ERRORLEVEL%
 ct.bat io-apply --list "%CTLIST%"
