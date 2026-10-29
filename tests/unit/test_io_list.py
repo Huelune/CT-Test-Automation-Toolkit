@@ -10,6 +10,8 @@ import importlib.util
 import sys
 import tempfile
 import unittest
+import warnings
+import zipfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
@@ -110,6 +112,42 @@ class ReadListTest(unittest.TestCase):
         book.save(str(path))
         got = read_list(path)
         self.assertEqual(got.rows, [ListRow(2, 'dmy_calc', 'dmy_gain', 'in')])
+
+    def _saved_list(self, member: str = '', old: str = '', new: str = '') -> Path:
+        """머리글과 한 줄짜리 목록을 저장하고, `member` 안의 `old`를 `new`로 바꾼다."""
+        import openpyxl
+        book = openpyxl.Workbook()
+        book.active.append(['함수', '변수', '구분'])
+        book.active.append(['dmy_calc', 'dmy_x', '입력'])
+        path = self.dir / 'list.xlsx'
+        book.save(str(path))
+        if member:
+            with zipfile.ZipFile(str(path)) as z:
+                parts = {n: z.read(n) for n in z.namelist()}
+            text = parts[member].decode('utf-8')
+            self.assertIn(old, text)
+            parts[member] = text.replace(old, new).encode('utf-8')
+            with zipfile.ZipFile(str(path), 'w') as z:
+                for n, data in parts.items():
+                    z.writestr(n, data)
+        return path
+
+    @unittest.skipUnless(HAS_OPENPYXL, 'openpyxl 없음')
+    def test_read_list_ignores_stale_dimension(self) -> None:
+        # 스트리밍으로 쓰는 도구는 <dimension>을 틀리게 남기기도 한다. 그래도 모든 줄을 읽는다
+        path = self._saved_list('xl/worksheets/sheet1.xml', '<dimension ref="A1:C2"/>',
+                                '<dimension ref="A1:C1"/>')
+        self.assertEqual(read_list(path).rows, [ListRow(2, 'dmy_calc', 'dmy_x', 'in')])
+
+    @unittest.skipUnless(HAS_OPENPYXL, 'openpyxl 없음')
+    def test_read_list_silences_openpyxl_warnings(self) -> None:
+        # openpyxl 경고는 설치 경로(계정 이름 포함)와 함께 화면에 찍힌다
+        path = self._saved_list('xl/styles.xml', '<cellStyle name="Normal" xfId="0" builtinId="0" '
+                                'hidden="0"/>', '')
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter('always')
+            read_list(path)
+        self.assertEqual([str(w.message) for w in caught], [])
 
     @unittest.skipUnless(HAS_OPENPYXL, 'openpyxl 없음')
     def test_read_list_not_xlsx_fixed_message(self) -> None:

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import importlib
+import warnings
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Sequence
@@ -106,11 +107,15 @@ def read_list(path: Path, importer: Callable[[str], object] = importlib.import_m
     except ImportError:
         raise ListFileError(E_NO_OPENPYXL) from None
     try:
-        book = openpyxl.load_workbook(str(path), read_only=True, data_only=True)  # type: ignore[attr-defined]
-        try:
-            values = list(book.worksheets[0].iter_rows(values_only=True))
-        finally:
-            book.close()
+        with warnings.catch_warnings():
+            warnings.simplefilter('ignore')  # openpyxl 경고는 설치 경로(계정 이름)와 함께 찍힌다
+            book = openpyxl.load_workbook(str(path), read_only=True, data_only=True)  # type: ignore[attr-defined]
+            try:
+                sheet = book.worksheets[0]
+                sheet.reset_dimensions()  # 파일에 적힌 범위(<dimension>)가 틀려도 끝까지 읽는다
+                values = list(sheet.iter_rows(values_only=True))
+            finally:
+                book.close()
     except Exception:  # 원문에는 경로가 들어 있을 수 있어 버린다
         raise ListFileError(E_LIST_OPEN) from None
     return parse_rows(values)
