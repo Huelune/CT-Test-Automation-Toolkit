@@ -21,3 +21,10 @@
 - 서버 PC의 CT가 2023 이후 버전이면 1절이 CT CLI FAIL로 끝나 다시 돌려야 한다. 그래서
   1절을 돌리기 전에 selfcheck가 `csc.exe`와 `UtCLI.exe`를 둘 다 찾게 했다. 캡처 한 장으로
   어느 CLI인지 가린다.
+
+## 2026-10-29 서버 PC 환경 점검 결과
+
+- `todo.md` 1절 결과: 필수 통과 3 / 3, 경고 0, 종료 코드 0. Python 3.14.7, openpyxl 3.1.5,
+  git 있음, 콘솔 utf-8에서 한글이 깨지지 않았다. 실행 로그 파일도 써졌다.
+- CT CLI는 `CT_HOME` 아래 `csc.exe`만 찾았고 `UtCLI.exe`는 없었다. 서버 PC의 CT는 2023
+  이후 버전이다. 전날 selfcheck가 `csc.exe`도 찾게 고쳐 두어 다시 돌리지 않았다.
