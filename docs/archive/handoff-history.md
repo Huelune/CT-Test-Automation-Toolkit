@@ -59,3 +59,16 @@
   `testInfo.export` 원문과 다시 가져오기 동작은 todo.md 4절로 요청했다.
 - 사용자 요청으로 todo.md 3절에 Codebeamer 목록을 만드는 형식(머리글, 변수 이름 적는 법, 예시 표)을
   적었다.
+
+## 2026-10-29 todo.md 3절 결과와 4절 첫 실행
+
+- 3절: 서버 PC에서 `ct.bat io-apply --list`가 예제 목록을 `함수 1, 줄 9, 목록 오류 0`, 종료 코드
+  0으로 읽었다. 서버 PC의 `ct.bat` Python에 openpyxl이 있다. 실제 목록 자리에 넣은 파일도 같은
+  개수가 나와, 예제를 넣은 것인지 사용자에게 물었다. 같은 1초에 두 번 돌려 실행 로그 파일 하나를
+  같이 썼다(리뷰에서 미뤄 둔 작은 지적이 실제로 났다. 2차에서 정한다).
+- 사용자 요청으로 목록 형식 안내를 todo.md 3절에 적었다가, 3절을 처리하면서 README의 "입력·출력
+  지정 목록 형식" 절로 옮겼다.
+- 4절 첫 실행: 서버 PC는 PowerShell이 그룹 정책으로 막혀 있었다. AGENTS.md에 "cmd와 Python으로만"
+  규칙을 더했다. 찍힌 `testInfo.export`는 XML 파일 목록이었고 `UnitTests\dmy_calc_test0.utest`도
+  적혀 있었다. 2절 캡처가 CSV 비교에서 끝나 `.utest` 비교가 화면 밖이었을 수 있어, 설계 문서의
+  "CSV만 바뀌었다"를 고치고 4절을 Python 요약(`examples/ct_sample/probe_export.py`)으로 다시 썼다.
