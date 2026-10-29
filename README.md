@@ -7,7 +7,8 @@
 
 저장소: [Huelune/CT-Test-Automation-Toolkit](https://github.com/Huelune/CT-Test-Automation-Toolkit)
 
-> 아직 초기 단계입니다. 지금은 저장소 골격, 실행 로그, 서버 PC 환경 점검만 있습니다.
+> 아직 초기 단계입니다. 지금은 저장소 골격, 실행 로그, 서버 PC 환경 점검, 입력·출력 지정 목록
+> 확인만 있습니다.
 > 앞으로 만들 것은 [로드맵](docs/design/roadmap.md)에 있습니다.
 
 ## 요구 환경
@@ -36,6 +37,7 @@ ct.bat selfcheck
 | 명령 | 하는 일 |
 | --- | --- |
 | `ct.bat selfcheck` | Python, openpyxl, CT CLI(`csc.exe`, `UtCLI.exe`), 로그 폴더 쓰기, git을 점검하고 한 화면에 요약 |
+| `ct.bat io-apply --list <목록.xlsx>` | 입력·출력 지정 목록이 툴킷 형식에 맞는지 확인하고 개수를 한 화면에 찍음. 처리하지 못한 줄은 `result\io\<시각>\skipped.txt`. CT 내보낸 폴더(`--export`)를 고치는 기능은 아직 없음 |
 | `ct.bat version` | 툴킷 버전 |
 
 모든 명령은 `result/logs/<yyyyMMdd_HHmmss>_<명령>.log`에 실행 로그를 남깁니다. 콘솔에는
