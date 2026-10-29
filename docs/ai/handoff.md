@@ -13,9 +13,10 @@
 - 기준일: 2026-10-29
 - 브랜치: 작업은 `develop`, `main`은 `develop`의 fast-forward만 받는다. 서버 PC의
   클론은 `main`을 `git pull`한다.
-- 단계: 저장소 골격, 실행 로그(`ct_toolkit.log`), 환경 점검(`ct.bat selfcheck`)까지.
-  CT를 부르는 기능은 아직 없다. 단위 테스트는 에이전트 PC의 Python 3.12·3.14에서
-  통과했다. 3.8은 문법 검사만 했다.
+- 단계: 저장소 골격, 실행 로그(`ct_toolkit.log`), 환경 점검(`ct.bat selfcheck`), 입력·출력
+  지정 목록 확인(`ct.bat io-apply --list`)까지. CT를 부르거나 CT 파일을 고치는 기능은 아직
+  없다(`--export`는 정해 둔 안내와 종료 코드 1). 단위 테스트는 에이전트 PC의 Python
+  3.12·3.14에서 통과했다. 3.8은 문법 검사만 했다.
 - 에이전트 PC: CT와 서버 PC의 결과 폴더가 없다. 실행 증거는 서버 PC에서만 나온다.
 - 서버 PC(2026-10-29 `ct.bat selfcheck`): Python 3.14.7, openpyxl 3.1.5, git 있음, 콘솔
   utf-8(한글 정상). CT CLI는 `CT_HOME` 아래 `csc.exe`만 있고 `UtCLI.exe`는 없다.
@@ -43,5 +44,7 @@
 정적 구현과 단위 테스트만 거친 것이다. 서버 PC 실행 결과가 나오면 해당 줄을 지우고
 결과를 작업 기록에 남긴다.
 
-- 지금은 없다. `ct.bat`, 콘솔 한글, CT CLI 탐색, 실행 로그 쓰기는 2026-10-29 서버 PC
-  환경 점검으로 확인했다.
+- `ct.bat io-apply --list`: 단위 테스트와 에이전트 PC의 예제 목록 실행만 거쳤다. 서버 PC의
+  openpyxl과 실제 Codebeamer 목록으로는 안 돌렸다(todo.md 3절).
+- `ct.bat`, 콘솔 한글, CT CLI 탐색, 실행 로그 쓰기는 2026-10-29 서버 PC 환경 점검으로
+  확인했다.

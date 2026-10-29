@@ -75,3 +75,35 @@ type probe.txt
 - `dmy_spare`를 어떻게 두었는지 한 줄.
 
 `C:\ctsample`은 다음 요청(고친 파일 다시 가져오기)에서도 쓰니 지우지 않는다.
+
+## 3. 입력·출력 지정 목록 확인(`ct.bat io-apply --list`)
+
+**왜:** 목록을 읽는 부분을 먼저 만들었다. 서버 PC의 Python과 openpyxl로 XLSX를 읽는지, 사용자가
+Codebeamer에서 내보낸 목록이 툴킷 형식(첫 시트, 첫 줄 머리글 `함수`, `변수`, `구분`, 비어도 되는
+`파일`, `타입`, `범위`. `구분`은 `입력`/`출력`/`입출력`)에 맞는지 본다. 2절과 따로 돌려도 된다. 2분.
+
+둘째 줄의 `<...>`를 실제 목록의 전체 경로로 바꿔 붙여 넣는다. 경로는 `cls` 전에 넣어 캡처에 남지
+않는다. 아직 실제 목록이 없으면 마지막 두 줄은 빼고 붙여 넣는다.
+
+```bat
+prompt $G
+set "CTLIST=<Codebeamer에서 내보낸 목록.xlsx 전체 경로>"
+cls
+git pull
+ct.bat io-apply --list examples\ct_sample\io_list.example.xlsx
+echo exit=%ERRORLEVEL%
+ct.bat io-apply --list "%CTLIST%"
+echo exit=%ERRORLEVEL%
+```
+
+**확인할 것:**
+
+- 예제 목록은 `목록      함수 1, 줄 9, 목록 오류 0`, `exit=0`.
+- 실제 목록은 `목록 오류` 개수와 `exit`. `[ERROR]` 줄이 있으면 그 줄이 이유와 할 일이다.
+- 화면에는 개수와 정해 둔 문구만 나온다. 함수·변수 이름은 `result\io\<시각>\skipped.txt`에만 있다.
+
+**돌려줄 것:**
+
+- 화면 캡처 한 장.
+- 목록 오류가 있으면 `skipped.txt`의 이유 칸 값(예: `목록 오류(구분 값)`)과 개수만 말로. 함수·변수
+  이름은 보내지 않는다.
