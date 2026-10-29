@@ -27,7 +27,9 @@
 - CT CLI는 버전마다 프로그램이 다르다. 2023 이후는 설치 폴더 바로 아래 `csc.exe`
   (`csc.exe -e -w <워크스페이스> --ini -O <CLI.ini>`, 2026.06 매뉴얼 CI/CD·CLI 프로젝트 실행),
   3.x 이하는 `plugins\com.codescroll.ut*\bin\UtCLI.exe`(3.6 매뉴얼 CLI Execution)다.
-- 다음 할 일 후보는 [로드맵](../design/roadmap.md).
+- 다음 할 일: 로드맵 1번 [목록대로 입력·출력 지정하기](../design/io-designation.md). 설계는
+  사용자 승인 대기, CT 파일 형식은 todo.md 2절 견본 결과 대기. 나머지 후보는
+  [로드맵](../design/roadmap.md).
 
 ## 브랜치 지도
 
