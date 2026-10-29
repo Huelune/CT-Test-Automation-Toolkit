@@ -43,6 +43,8 @@ CT 단위 테스트를 돌리고 결과물을 정리하는 과정에서 자동�
 - CT 2026.06 개요: https://www.manula.com/manuals/codescroll/controller-tester/2026.06/en/topic/ct-overview
 - CI/CD, `csc.exe` 위치 (2026.06): https://www.manula.com/manuals/codescroll/controller-tester/2026.06/ko/topic/ci-cd
 - CLI 프로젝트 생성·실행 (2026.06): https://www.manula.com/manuals/codescroll/controller-tester/2026.06/ko/topic/cli-project-execution
+- CLI 프로젝트 생성·실행 (2025.12, 서버 PC 버전): https://www.manula.com/manuals/codescroll/controller-tester/2025.12/ko/topic/cli-project-execution
+- 테스트 공유·테스트 데이터로 테스트 생성 (2025.12): https://www.manula.com/manuals/codescroll/controller-tester/2025.12/ko/topic/share-test
 - CLI Setting (3.6): https://www.manula.com/manuals/codescroll/controller-tester/3.6/en/topic/cli-setting
 - CLI Execution (3.6): https://www.manula.com/manuals/codescroll/controller-tester/3.6/en/topic/cli-excution
 - Jenkins 플러그인 (2026.06): https://www.manula.com/manuals/codescroll/controller-tester-user-guides/2026.06/en/topic/jenkins-plugin

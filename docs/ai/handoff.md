@@ -18,10 +18,12 @@
   통과했다. 3.8은 문법 검사만 했다.
 - 에이전트 PC: CT와 서버 PC의 결과 폴더가 없다. 실행 증거는 서버 PC에서만 나온다.
 - 서버 PC(2026-10-29 `ct.bat selfcheck`): Python 3.14.7, openpyxl 3.1.5, git 있음, 콘솔
-  utf-8(한글 정상). CT CLI는 `CT_HOME` 아래 `csc.exe`만 있고 `UtCLI.exe`는 없다. 2023 이후
-  버전이고, 정확한 버전(Help > About)은 아직 모른다.
+  utf-8(한글 정상). CT CLI는 `CT_HOME` 아래 `csc.exe`만 있고 `UtCLI.exe`는 없다.
+- 서버 PC의 CT: 2025 (V3), 빌드 20251127(Help > About). 맞는 매뉴얼은 빌드 날짜로 보아
+  2025.12판이다(추정). CT 동작 근거는 2025.12판을 먼저 본다.
 - CT 기능 근거: 슈어소프트 CT 매뉴얼(manula.com). CLI 키는 3.6 매뉴얼의 CLI Setting,
-  기능 목록은 2026.06 매뉴얼에서 확인했다.
+  기능 목록은 2026.06 매뉴얼에서 확인했다. 2025.12판의 CLI.ini 섹션 목록과 `csc.exe`
+  실행 방법은 2026.06판과 같다.
 - CT CLI는 버전마다 프로그램이 다르다. 2023 이후는 설치 폴더 바로 아래 `csc.exe`
   (`csc.exe -e -w <워크스페이스> --ini -O <CLI.ini>`, 2026.06 매뉴얼 CI/CD·CLI 프로젝트 실행),
   3.x 이하는 `plugins\com.codescroll.ut*\bin\UtCLI.exe`(3.6 매뉴얼 CLI Execution)다.
