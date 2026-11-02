@@ -17,7 +17,6 @@ from .io_list import ListFileError, ListRead, read_list
 from .io_match import SKIP_REASONS, MatchResult, match
 from .log import RunLog
 
-E_EXPORT_NOT_READY = 'CT 내보낸 폴더 읽기는 아직 없음: todo.md 2절 견본 결과를 기다리는 중'
 E_OUT_WRITE = '결과 폴더에 쓸 수 없음: result 폴더 권한과 남은 공간을 확인'
 M_LIST_ONLY = '내보낸 폴더(--export)를 주지 않아 목록만 확인했습니다'
 
@@ -85,17 +84,17 @@ def main(log: RunLog, list_path: Path, export_dir: Optional[Path] = None,
     if export_dir is not None:
         try:
             with log.checkpoint('내보낸 폴더 읽기'):
-                tests = loader(export_dir)
-            result = match(listed.rows, tests, reset_cases)
+                export = loader(export_dir)
+            result = match(listed.rows, export.tests, reset_cases)
             for reason in SKIP_REASONS:
                 if result.count(reason):
                     log.warn('건너뜀 {} {}'.format(reason, result.count(reason)))
             if result.unlisted:
                 log.warn('{} {}'.format(R_UNLISTED, len(result.unlisted)))
             with log.checkpoint('사본 쓰기'):
-                writer(export_dir, out_dir, tests, result.applied, reset_cases)
-        except ct_export.NotReady:
-            log.error(E_EXPORT_NOT_READY)
+                writer(export_dir, out_dir, export.tests, result.applied, reset_cases)
+        except ct_export.ExportError as exc:
+            log.error(str(exc))
             return 1
 
     try:

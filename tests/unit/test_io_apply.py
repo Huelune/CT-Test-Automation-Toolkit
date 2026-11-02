@@ -17,8 +17,8 @@ from typing import List
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from ct_toolkit.__main__ import _parser  # noqa: E402
-from ct_toolkit.io_apply import (  # noqa: E402
-    E_EXPORT_NOT_READY, M_LIST_ONLY, main, summary_lines, write_skipped)
+from ct_toolkit.ct_export import E_EXPORT_OPEN, ExportRead  # noqa: E402
+from ct_toolkit.io_apply import M_LIST_ONLY, main, summary_lines, write_skipped  # noqa: E402
 from ct_toolkit.io_list import (  # noqa: E402
     E_LIST_OPEN, R_LIST_EMPTY, ListError, ListFileError, ListRead, ListRow)
 from ct_toolkit.io_match import R_NO_VAR, CtTest, CtVar, MatchResult, Skip  # noqa: E402
@@ -106,9 +106,9 @@ class MainTest(unittest.TestCase):
         def reader(path: Path) -> ListRead:
             return listed
 
-        def loader(path: Path) -> List[CtTest]:
+        def loader(path: Path) -> ExportRead:
             self.loaded.append(path)
-            return tests or []
+            return ExportRead(tests or [], [])
 
         def writer(*args) -> None:
             self.writes.append(args)
@@ -138,11 +138,11 @@ class MainTest(unittest.TestCase):
                                         {'k1': {'dmy_a': 'out'}}, True)])
         self.assertIn('지정      변수 1', self.console.getvalue())
 
-    def test_main_default_loader_not_ready(self) -> None:
-        code = main(self.log, Path('list.xlsx'), Path('export'), now=NOW, out_root=self.out_root,
-                    reader=lambda path: _listed())
+    def test_main_export_error_stops(self) -> None:
+        code = main(self.log, Path('list.xlsx'), self.tmp / 'no_such_export', now=NOW,
+                    out_root=self.out_root, reader=lambda path: _listed())
         self.assertEqual(code, 1)
-        self.assertIn(E_EXPORT_NOT_READY, self.console.getvalue())
+        self.assertIn(E_EXPORT_OPEN, self.console.getvalue())
 
     def test_main_list_error_stops(self) -> None:
         def reader(path: Path) -> ListRead:
