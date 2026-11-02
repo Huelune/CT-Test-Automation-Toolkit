@@ -26,6 +26,7 @@ LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들�
 SECTIONS = {
     '5': ('실제 Codebeamer 목록 확인', ['-m', 'ct_toolkit', 'io-apply', '--list', LIST]),
     '9': ('CT 견본: CSV만으로 테스트 생성하기', ['examples/ct_sample/probe_import.py']),
+    '10': ('CT 견본: GUI 내보내기의 TC별 분기', ['examples/ct_sample/probe_gui.py']),
 }
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
