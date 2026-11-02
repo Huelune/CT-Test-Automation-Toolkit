@@ -10,7 +10,7 @@ CT 2025는 입력·출력 지정을 테스트 데이터 CSV의 머리글 줄에 
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Dict, List, Mapping, Optional, Set, Tuple
 
@@ -49,6 +49,9 @@ class ExportError(Exception):
 class ExportRead:
     tests: List[CtTest]
     unreadable: List[str]  # 읽지 못한 CSV의 내보낸 폴더 기준 상대 경로(posix)
+    # 테스트 이름이 `<함수>_test<N>` 꼴이 아닌 테스트의 키. CT는 이런 CSV 이름으로 테스트를 만들지
+    # 않으므로(매뉴얼 2025.12 share-test) 사본에 넣지 않는다. 맞춰 보기에는 그대로 쓴다.
+    renamed: List[str] = field(default_factory=list)
 
 
 def split_fields(line: str) -> List[str]:
@@ -176,8 +179,10 @@ def _function_and_file(csv_path: Path, test_name: str) -> Tuple[str, str]:
     return function, files[-1].decode('ascii') if files else ''
 
 
-def _read_test(csv_path: Path, key: str) -> Optional[CtTest]:
-    """CT 테스트 데이터 꼴이 아니면 None. 읽기·디코딩 오류는 부르는 쪽이 받는다."""
+def _read_test(csv_path: Path, key: str) -> Optional[Tuple[CtTest, bool]]:
+    """(테스트, 테스트 이름이 `<함수>_test<N>` 꼴이 아닌지). CT 테스트 데이터 꼴이 아니면 None.
+
+    읽기·디코딩 오류는 부르는 쪽이 받는다."""
     text, _ = decode_csv(csv_path.read_bytes())
     lines = _LINE_END.split(text)
     if len(lines) < 3 or lines[0].strip() != FIRST_LINE or not lines[1].startswith(NAME_PREFIX):
@@ -190,7 +195,8 @@ def _read_test(csv_path: Path, key: str) -> Optional[CtTest]:
     test_name = split_fields(lines[1])[0][len(NAME_PREFIX):].strip()
     cases = [split_fields(line) for line in lines[3:] if line.strip()]
     function, file = _function_and_file(csv_path, test_name)
-    return CtTest(key, function, file, _variables(_symbol_columns(header), cases))
+    test = CtTest(key, function, file, _variables(_symbol_columns(header), cases))
+    return test, _TEST_NAME.fullmatch(test_name) is None
 
 
 def load_tests(export_dir: Path) -> ExportRead:
@@ -204,18 +210,21 @@ def load_tests(export_dir: Path) -> ExportRead:
         raise ExportError(E_EXPORT_OPEN) from None
     tests: List[CtTest] = []
     unreadable: List[str] = []
+    renamed: List[str] = []
     for key, path in found:
         try:
-            test = _read_test(path, key)
+            read = _read_test(path, key)
         except (OSError, UnicodeDecodeError):
-            test = None
-        if test is None:
+            read = None
+        if read is None:
             unreadable.append(key)
         else:
-            tests.append(test)
+            tests.append(read[0])
+            if read[1]:
+                renamed.append(key)
     if not tests:
         raise ExportError(E_EXPORT_EMPTY)
-    return ExportRead(tests, unreadable)
+    return ExportRead(tests, unreadable, renamed)
 
 
 def _split_end(row: str) -> Tuple[str, str]:

@@ -11,9 +11,10 @@
 
 from __future__ import annotations
 
+import dataclasses
 import datetime as _dt
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import ct_export, paths
 from .io_list import ListFileError, ListRead, read_list
@@ -24,19 +25,27 @@ E_OUT_WRITE = '결과 폴더에 쓸 수 없음: result 폴더 권한과 남은 �
 M_LIST_ONLY = '내보낸 폴더(--export)를 주지 않아 목록만 확인했습니다'
 M_NEXT = '다음: CT에서 바꾼 테스트의 원래 것을 지우고 [테스트 데이터로 테스트 생성하기]로 사본 CSV를 넣기'
 M_NOTHING = '바꿀 지정이 없어 사본 CSV를 쓰지 않았습니다'
+M_RENAMED_ONLY = '바꿀 테스트가 모두 이름 꼴이 아니라 사본 CSV를 쓰지 않았습니다'
 
 SKIPPED_NAME = 'skipped.txt'
 R_UNLISTED = '목록에 없는 테스트'
 R_RELEASED = '목록에 없어 해제'
 R_KEPT = '목록에 없지만 값 있음'
 R_UNREADABLE = '읽지 못한 CSV'
+R_RENAMED = '이름 꼴이 아닌 테스트'  # 화면·로그용
+R_RENAMED_TEST = '테스트 이름이 <함수>_test<N> 꼴이 아님'  # skipped.txt 이유
 
 _MAX_SAME_SECOND = 1000  # 같은 시각의 결과 폴더 이름(`_2`, `_3`…)을 시도하는 한도
 
 
 def summary_lines(listed: ListRead, result: Optional[MatchResult], out_display: str,
-                  reset_cases: bool, unreadable: int = 0, copied: int = 0) -> List[str]:
-    """한 화면 요약. `result`가 없으면 목록만 확인한 것이다."""
+                  reset_cases: bool, unreadable: int = 0, copied: int = 0,
+                  renamed: int = 0) -> List[str]:
+    """한 화면 요약. `result`가 없으면 목록만 확인한 것이다.
+
+    `renamed`는 지정이 바뀔 테스트였지만 이름 꼴이 아니라 사본에서 뺀 개수다. `result`는 그 테스트를
+    뺀 것이다(`main`이 `_without_tests`로 뺀다).
+    """
     lines = ['목록      함수 {}, 줄 {}, 목록 오류 {}'.format(
         listed.functions, listed.total, len(listed.errors))]
     skipped = '건너뛴 줄 {}{}'.format(out_display, SKIPPED_NAME)
@@ -49,18 +58,19 @@ def summary_lines(listed: ListRead, result: Optional[MatchResult], out_display: 
         '지정      변수 {}(그중 바뀜 {}), {} {}, 값 있어 둠 {}'.format(
             result.assigned, result.changed_vars, R_RELEASED, result.released_vars,
             result.kept_vars),
-        '안 다룸   내보내지 않은 함수 {}, {} {}'.format(
-            len(result.not_exported), R_UNREADABLE, unreadable),
+        '안 다룸   내보내지 않은 함수 {}, {} {}, {} {}'.format(
+            len(result.not_exported), R_UNREADABLE, unreadable, R_RENAMED, renamed),
         '건너뜀    ' + ', '.join('{} {}'.format(r, result.count(r)) for r in SKIP_REASONS),
         '사본      {} (CSV {})'.format(out_display, copied),
         skipped,
-        M_NEXT if copied else M_NOTHING,
+        M_NEXT if copied else M_RENAMED_ONLY if renamed else M_NOTHING,
     ]
 
 
 def write_skipped(path: Path, listed: ListRead, result: Optional[MatchResult],
-                  export: Optional[ct_export.ExportRead] = None) -> None:
-    """사람이 손으로 마저 할 줄. 탭 구분이라 엑셀로도 열린다."""
+                  export: Optional[ct_export.ExportRead] = None,
+                  renamed: Sequence[str] = ()) -> None:
+    """사람이 손으로 마저 할 줄. 탭 구분이라 엑셀로도 열린다. `renamed`는 사본에서 뺀 테스트 키."""
     lines = ['행\t함수\t변수\t이유']
     lines += ['{}\t{}\t{}\t{}'.format(e.row, e.function, e.variable, e.reason)
               for e in sorted(listed.errors, key=lambda e: e.row)]
@@ -69,6 +79,8 @@ def write_skipped(path: Path, listed: ListRead, result: Optional[MatchResult],
         lines += ['{}\t{}\t{}\t{}'.format(s.row, s.function, s.variable, s.reason)
                   for s in result.skips]
         lines += ['-\t{}\t-\t{}'.format(name, R_UNLISTED) for name in result.unlisted]
+        lines += ['-\t{}\t-\t{}'.format(functions.get(key, '-'), R_RENAMED_TEST)
+                  for key in sorted(renamed)]
         for reason, found in ((R_RELEASED, result.released), (R_KEPT, result.kept)):
             lines += ['-\t{}\t{}\t{}'.format(functions.get(key, '-'), name, reason)
                       for key in sorted(found) for name in found[key]]
@@ -76,6 +88,18 @@ def write_skipped(path: Path, listed: ListRead, result: Optional[MatchResult],
         lines += ['-\t{}\t-\t{}'.format(name, R_UNREADABLE) for name in export.unreadable]
     with open(path, 'w', encoding='utf-8-sig') as f:
         f.write('\n'.join(lines) + '\n')
+
+
+def _without_tests(result: MatchResult, keys: Sequence[str]) -> MatchResult:
+    """사본에서 뺀 테스트의 지정·해제를 결과에서도 뺀다(화면과 skipped.txt가 사본과 어긋나지 않게)."""
+    def kept(found: Dict[str, Dict[str, str]]) -> Dict[str, Dict[str, str]]:
+        return {k: v for k, v in found.items() if k not in keys}
+
+    def kept_lists(found: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        return {k: v for k, v in found.items() if k not in keys}
+
+    return dataclasses.replace(result, applied=kept(result.applied), changes=kept(result.changes),
+                               released=kept_lists(result.released), kept=kept_lists(result.kept))
 
 
 def _make_out_dir(root: Path, stamp: str) -> Tuple[Path, str]:
@@ -107,6 +131,7 @@ def main(log: RunLog, list_path: Path, export_dir: Optional[Path] = None,
 
     export = None
     result = None
+    renamed: List[str] = []  # 지정이 바뀔 테스트인데 이름 꼴이 아니라 사본에서 뺀 것의 키
     if export_dir is not None:
         try:
             with log.checkpoint('내보낸 폴더 읽기'):
@@ -115,6 +140,10 @@ def main(log: RunLog, list_path: Path, export_dir: Optional[Path] = None,
             log.error(str(exc))
             return 1
         result = match(listed.rows, export.tests, reset_cases)
+        # CT는 `<함수>_test<N>` 꼴이 아닌 이름의 CSV로는 테스트를 만들지 않는다. 그런 사본은 쓰지 않는다
+        renamed = sorted(set(result.edits) & set(export.renamed))
+        if renamed:
+            result = _without_tests(result, renamed)
         for reason in SKIP_REASONS:
             if result.count(reason):
                 log.warn('건너뜀 {} {}'.format(reason, result.count(reason)))
@@ -122,6 +151,8 @@ def main(log: RunLog, list_path: Path, export_dir: Optional[Path] = None,
             log.warn('{} {}'.format(R_UNLISTED, len(result.unlisted)))
         if export.unreadable:
             log.warn('{} {}'.format(R_UNREADABLE, len(export.unreadable)))
+        if renamed:
+            log.warn('{} {}: 사본에 넣지 않음'.format(R_RENAMED, len(renamed)))
         if result.kept_vars:
             log.warn('{} {}'.format(R_KEPT, result.kept_vars))
         if result.released_vars:
@@ -147,12 +178,13 @@ def main(log: RunLog, list_path: Path, export_dir: Optional[Path] = None,
         log.info('사본 CSV {}'.format(copied))
 
     try:
-        write_skipped(out_dir / SKIPPED_NAME, listed, result, export)
+        write_skipped(out_dir / SKIPPED_NAME, listed, result, export, renamed)
     except OSError:
         log.error(E_OUT_WRITE)
         return 1
     unreadable = len(export.unreadable) if export is not None else 0
-    for line in summary_lines(listed, result, out_display, reset_cases, unreadable, copied):
+    for line in summary_lines(listed, result, out_display, reset_cases, unreadable, copied,
+                              len(renamed)):
         log.step(line)
     log.step('로그: {}'.format(log.path.name if log.path is not None else '(없음)'))
     return 0

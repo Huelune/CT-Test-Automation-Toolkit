@@ -23,8 +23,8 @@ from ct_toolkit.__main__ import _parser  # noqa: E402
 from ct_toolkit.ct_export import (  # noqa: E402
     E_EXPORT_EMPTY, E_EXPORT_OPEN, ExportError, ExportRead)
 from ct_toolkit.io_apply import (  # noqa: E402
-    E_OUT_WRITE, M_LIST_ONLY, M_NEXT, M_NOTHING, R_KEPT, R_RELEASED, R_UNREADABLE, main,
-    summary_lines, write_skipped)
+    E_OUT_WRITE, M_LIST_ONLY, M_NEXT, M_NOTHING, M_RENAMED_ONLY, R_KEPT, R_RELEASED, R_RENAMED,
+    R_RENAMED_TEST, R_UNREADABLE, main, summary_lines, write_skipped)
 from ct_toolkit.io_list import (  # noqa: E402
     E_LIST_OPEN, R_LIST_EMPTY, ListError, ListFileError, ListRead, ListRow)
 from ct_toolkit.io_match import R_NO_VAR, CtTest, CtVar, MatchResult, Skip  # noqa: E402
@@ -80,7 +80,7 @@ class SummaryTest(unittest.TestCase):
             '목록      함수 2, 줄 6, 목록 오류 1',
             '테스트    내보낸 것 3, 바꾼 것 2, 케이스 정리 2, 목록에 없는 것 1',
             '지정      변수 3(그중 바뀜 1), 목록에 없어 해제 1, 값 있어 둠 0',
-            '안 다룸   내보내지 않은 함수 1, 읽지 못한 CSV 1',
+            '안 다룸   내보내지 않은 함수 1, 읽지 못한 CSV 1, 이름 꼴이 아닌 테스트 0',
             '건너뜀    함수 여럿 0, 변수 없음 1, 목록 충돌 0, 값 있음 0, 타입 제외 0',
             '사본      ' + OUT + ' (CSV 2)',
             '건너뛴 줄 ' + OUT + 'skipped.txt',
@@ -102,6 +102,14 @@ class SummaryTest(unittest.TestCase):
         self.assertEqual(lines[-3:], ['사본      ' + OUT + ' (CSV 0)',
                                       '건너뛴 줄 ' + OUT + 'skipped.txt',
                                       M_NOTHING])
+
+    def test_renamed_tests_are_counted_on_the_not_handled_line(self) -> None:
+        lines = summary_lines(_listed(), _result(), OUT, True, unreadable=1, copied=2, renamed=3)
+        self.assertEqual(lines[3], '안 다룸   내보내지 않은 함수 1, 읽지 못한 CSV 1, 이름 꼴이 아닌 테스트 3')
+        self.assertEqual(lines[-1], M_NEXT)
+        only = summary_lines(_listed(), _empty_result(), OUT, True, renamed=1)
+        self.assertEqual(only[-1], M_RENAMED_ONLY)  # 바꿀 지정은 있지만 사본에 넣지 않았다
+        self.assertEqual(summary_lines(_listed(), _empty_result(), OUT, True)[-1], M_NOTHING)
 
     def test_kept_variables_are_counted(self) -> None:
         result = _result()
@@ -151,6 +159,12 @@ class SkippedFileTest(unittest.TestCase):
                                       '-\tdmy_calc\tdmy_val2\t' + R_KEPT])
         self.assertEqual(R_KEPT, '목록에 없지만 값 있음')
 
+    def test_skipped_file_lists_renamed_tests(self) -> None:
+        write_skipped(self.path, _listed(), _result(), _export(), ['k2'])
+        self.assertIn('-\tdmy_func\t-\t' + R_RENAMED_TEST, self._lines())
+        self.assertEqual((R_RENAMED, R_RENAMED_TEST),
+                         ('이름 꼴이 아닌 테스트', '테스트 이름이 <함수>_test<N> 꼴이 아님'))
+
     def test_list_only_skipped_file_has_list_errors(self) -> None:
         write_skipped(self.path, _listed(), None)
         self.assertEqual(self._lines(), [
@@ -173,13 +187,13 @@ class MainTest(unittest.TestCase):
         self.log.close()
         self._tmp.cleanup()
 
-    def _run(self, listed: ListRead, tests=None, unreadable=None, **kwargs) -> int:
+    def _run(self, listed: ListRead, tests=None, unreadable=None, renamed=None, **kwargs) -> int:
         def reader(path: Path) -> ListRead:
             return listed
 
         def loader(path: Path) -> ExportRead:
             self.loaded.append(path)
-            return ExportRead(tests or [], unreadable or [])
+            return ExportRead(tests or [], unreadable or [], renamed or [])
 
         def writer(*args) -> int:
             self.writes.append(args)
@@ -296,10 +310,59 @@ class MainTest(unittest.TestCase):
         self._run(listed, tests, unreadable=['other/a.csv', 'other/b.csv'], export_dir=Path('export'))
         warns = [line for line in self._log_text().splitlines() if ' WARN ' in line]
         self.assertTrue(any('읽지 못한 CSV 2' in line and 'other' not in line for line in warns), warns)
-        self.assertIn('안 다룸   내보내지 않은 함수 0, 읽지 못한 CSV 2', self.console.getvalue())
+        self.assertIn('안 다룸   내보내지 않은 함수 0, 읽지 못한 CSV 2, 이름 꼴이 아닌 테스트 0',
+                      self.console.getvalue())
         skipped = self._skipped()
         self.assertIn('-\tother/a.csv\t-\t읽지 못한 CSV', skipped)
         self.assertIn('-\tother/b.csv\t-\t읽지 못한 CSV', skipped)
+
+    def _renamed_run(self, **kwargs) -> int:
+        """k1(이름 꼴이 아님)과 k2 둘 다 지정이 바뀌는 테스트."""
+        tests = [CtTest('k1', 'secret_fn1', 'secret_a.c', {'secret_a': CtVar('secret_a', '')}),
+                 CtTest('k2', 'secret_fn2', 'secret_b.c', {'secret_b': CtVar('secret_b', '')})]
+        listed = ListRead([ListRow(2, 'secret_fn1', 'secret_a', 'out'),
+                           ListRow(3, 'secret_fn2', 'secret_b', 'out')], [])
+        return self._run(listed, tests, export_dir=Path('export'), reset_cases=True, **kwargs)
+
+    def test_renamed_tests_are_left_out_of_copies_and_counted(self) -> None:
+        self.assertEqual(self._renamed_run(renamed=['k1']), 0)
+        self.assertEqual(self.writes, [(Path('export'), self.out_root / STAMP,
+                                        {'k2': {'secret_b': 'out'}}, True)])
+        screen = self.console.getvalue()
+        self.assertIn('테스트    내보낸 것 2, 바꾼 것 1, 케이스 정리 1, 목록에 없는 것 0', screen)
+        self.assertIn('지정      변수 1(그중 바뀜 1), 목록에 없어 해제 0, 값 있어 둠 0', screen)
+        self.assertIn('안 다룸   내보내지 않은 함수 0, 읽지 못한 CSV 0, 이름 꼴이 아닌 테스트 1', screen)
+        self.assertIn('사본      ' + OUT + ' (CSV 1)', screen)
+        self.assertIn(M_NEXT, screen)
+        self.assertNotIn('secret', screen)
+        self.assertNotIn('secret', self._log_text())
+        skipped = self._skipped()
+        self.assertIn('-\tsecret_fn1\t-\t' + R_RENAMED_TEST, skipped)
+        self.assertNotIn('secret_fn2\t-\t' + R_RENAMED_TEST, skipped)
+        warns = [line for line in self._log_text().splitlines() if ' WARN ' in line]
+        self.assertTrue(any('이름 꼴이 아닌 테스트 1' in line for line in warns), warns)
+
+    def test_only_renamed_tests_to_change_writes_nothing(self) -> None:
+        self._renamed_run(renamed=['k1', 'k2'])
+        self.assertEqual(self.writes, [])
+        screen = self.console.getvalue()
+        self.assertIn('바꾼 것 0', screen)
+        self.assertIn('이름 꼴이 아닌 테스트 2', screen)
+        self.assertIn('사본      ' + OUT + ' (CSV 0)', screen)
+        self.assertIn(M_RENAMED_ONLY, screen)
+        self.assertNotIn(M_NOTHING, screen)
+        self.assertEqual(self._skipped().count(R_RENAMED_TEST), 2)
+
+    def test_renamed_test_without_changes_is_not_counted(self) -> None:
+        # 바꿀 것이 없어 어차피 사본에 안 넣는 테스트는 이름 꼴을 따지지 않는다
+        tests = [CtTest('k1', 'dmy_calc', 'dmy_io.c', {'dmy_a': CtVar('dmy_a', 'in')})]
+        listed = ListRead([ListRow(2, 'dmy_calc', 'dmy_a', 'in')], [])
+        self._run(listed, tests, renamed=['k1'], export_dir=Path('export'))
+        self.assertIn('이름 꼴이 아닌 테스트 0', self.console.getvalue())
+        self.assertIn(M_NOTHING, self.console.getvalue())
+        self.assertNotIn(R_RENAMED_TEST, self._skipped())
+        warns = [line for line in self._log_text().splitlines() if ' WARN ' in line]
+        self.assertFalse(any(R_RENAMED in line for line in warns), warns)
 
     def test_released_and_kept_variables_are_counted_and_listed(self) -> None:
         variables = {'dmy_a': CtVar('dmy_a', ''), 'dmy_old': CtVar('dmy_old', 'in'),

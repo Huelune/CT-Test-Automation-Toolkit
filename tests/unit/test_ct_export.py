@@ -149,6 +149,25 @@ class LoadTest(unittest.TestCase):
     def test_function_from_utest_when_test_renamed(self) -> None:
         self.assertEqual(self._only(name='renamed').function, 'dmy_calc')
 
+    def test_renamed_lists_tests_whose_name_is_not_function_test_number(self) -> None:
+        self._sample(project='good')
+        self._sample(name='renamed', project='by_utest')  # 함수는 .utest에서 찾는다
+        self._sample(name='secret_other', project='no_utest', utest=None)  # 함수도 못 찾는다
+        self._sample(name='dmy_calc_test', project='no_number')
+        self._sample(name='dmy_calc_test1x', project='trailing')
+        got = load(self.root)
+        self.assertEqual(got.renamed, [
+            'by_utest/UnitTests/dmy_calc_test0.csv', 'no_number/UnitTests/dmy_calc_test0.csv',
+            'no_utest/UnitTests/dmy_calc_test0.csv', 'trailing/UnitTests/dmy_calc_test0.csv'])
+        self.assertEqual(len(got.tests), 5)  # 맞춰 보기는 그대로 읽는다
+        self.assertEqual({t.key: t.function for t in got.tests}['by_utest/UnitTests/dmy_calc_test0.csv'],
+                         'dmy_calc')
+
+    def test_well_formed_test_names_are_not_renamed(self) -> None:
+        self._sample(name='dmy_calc_test12', project='a')
+        self._sample(name='dmy_calc_test_test3', project='b')
+        self.assertEqual(load(self.root).renamed, [])
+
     def test_utest_function_ignores_letter_length_byte(self) -> None:
         signature = b'dmy_calc(' + b'x' * 78 + b')'  # 88바이트라 길이 바이트가 'X'
         self.assertEqual(_java_string(signature)[:2], b'\x00X')
