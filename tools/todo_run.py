@@ -25,7 +25,6 @@ LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들�
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
 SECTIONS = {
     '5': ('실제 Codebeamer 목록 확인', ['-m', 'ct_toolkit', 'io-apply', '--list', LIST]),
-    '7': ('CT 견본: 보고서 .xls 읽기', ['examples/ct_sample/probe_report.py']),
     '8': ('CT 견본: CSV만 고친 폴더 가져오기', ['examples/ct_sample/probe_import.py']),
 }
 
