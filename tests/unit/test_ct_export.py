@@ -25,8 +25,13 @@ HEADER = (',<input>,dmy_count,dmy_gain,dmy_hist[0],dmy_limit.dmy_hi,dmy_limit.dm
           'dmy_ptr_mem[0],dmy_spare,dmy_x,<expect>,dmy_count,dmy_hist[0],dmy_level,returnVar,'
           '<output>,dmy_count,dmy_hist[0],dmy_level,returnVar,<toutput>,dmy_count,dmy_hist[0],'
           'dmy_level,returnVar')
-UTEST = (b'\xac\xed\x00\x05' + b'\x00\x27dmy_calc(signed int, const signed int *)'
+UTEST = (b'\xac\xed\x00\x05' + b'\x00\x28dmy_calc(signed int, const signed int *)'
          + b'\x00\x18C:\\ctsample\\src\\dmy_io.c')
+
+
+def _java_string(text: bytes) -> bytes:
+    """Java 직렬화 문자열: 2바이트 big-endian 길이 + 바이트."""
+    return len(text).to_bytes(2, 'big') + text
 
 
 def _case(header: str = HEADER, values: Optional[dict] = None) -> str:
@@ -110,6 +115,20 @@ class LoadTest(unittest.TestCase):
 
     def test_function_from_utest_when_test_renamed(self) -> None:
         self.assertEqual(self._only(name='renamed').function, 'dmy_calc')
+
+    def test_utest_function_ignores_letter_length_byte(self) -> None:
+        signature = b'dmy_calc(' + b'x' * 78 + b')'  # 88바이트라 길이 바이트가 'X'
+        self.assertEqual(_java_string(signature)[:2], b'\x00X')
+        utest = b'\xac\xed\x00\x05' + _java_string(signature)
+        self.assertEqual(self._only(name='renamed', utest=utest).function, 'dmy_calc')
+
+    def test_utest_function_string_may_continue_after_paren(self) -> None:
+        utest = b'\xac\xed\x00\x05' + _java_string(b'dmy_calc(signed int, const signed int *)_0')
+        self.assertEqual(self._only(name='renamed', utest=utest).function, 'dmy_calc')
+
+    def test_utest_function_needs_matching_length(self) -> None:
+        utest = b'\xac\xed\x00\x05\x00\x00\x00dmy_calc(a)'  # 앞 두 바이트가 길이로 안 맞는다
+        self.assertEqual(self._only(name='renamed', utest=utest).function, 'renamed')
 
     def test_renamed_without_utest_keeps_test_name(self) -> None:
         test = self._only(name='renamed', utest=None)

@@ -29,7 +29,9 @@ _LINE_END = re.compile(r'\r?\n')
 _IDENT = re.compile(r'[A-Za-z_]\w*')
 _SUPPORTED = re.compile(r'[A-Za-z_]\w*(?:\.[A-Za-z_]\w*|\[\d+\])*')  # 변수, 멤버, 배열 원소
 _TEST_NAME = re.compile(r'(.+)_test\d+')
-_UTEST_FUNCTION = re.compile(rb'([A-Za-z_]\w*)\([\x20-\x7e]*?\)')
+_UTEST_CANDIDATE = re.compile(rb'(?=[A-Za-z_]\w*\()')  # 시그니처 글자열이 시작할 수 있는 자리
+_UTEST_FUNCTION = re.compile(rb'([A-Za-z_]\w*)\(')
+_PRINTABLE = re.compile(rb'[\x20-\x7e]+')
 _UTEST_FILE = re.compile(rb'\\([\x21-\x5b\x5d-\x7e]+?\.(?:c|cc|cpp|cxx))(?![\w])')
 
 
@@ -112,6 +114,25 @@ def _variables(columns: Mapping[str, List[Tuple[int, str]]],
     return variables
 
 
+def _utest_function(utest: bytes) -> Optional[str]:
+    """`.utest`(Java 직렬화)의 첫 함수 시그니처 글자열에서 함수 이름.
+
+    Java는 문자열을 2바이트 big-endian 길이와 그 길이만큼의 바이트로 쓴다. 길이가 맞는 것만
+    받아, 길이 바이트가 영문자여도 함수 이름에 붙지 않는다. 글자열이 `)` 뒤로 이어져도 된다.
+    """
+    for found in _UTEST_CANDIDATE.finditer(utest):
+        start = found.start()
+        if start < 2:
+            continue
+        length = int.from_bytes(utest[start - 2:start], 'big')
+        text = utest[start:start + length]
+        if length >= 3 and len(text) == length and _PRINTABLE.fullmatch(text):
+            head = _UTEST_FUNCTION.match(text)
+            if head:
+                return head.group(1).decode('ascii')
+    return None
+
+
 def _function_and_file(csv_path: Path, test_name: str) -> Tuple[str, str]:
     """함수는 테스트 이름 `<함수>_test<N>`에서, 안 되면 `.utest`에서. 소스 파일은 `.utest`에서."""
     try:
@@ -119,13 +140,7 @@ def _function_and_file(csv_path: Path, test_name: str) -> Tuple[str, str]:
     except OSError:
         utest = b''
     named = _TEST_NAME.fullmatch(test_name)
-    in_utest = _UTEST_FUNCTION.search(utest)
-    if named:
-        function = named.group(1)
-    elif in_utest:
-        function = in_utest.group(1).decode('ascii')
-    else:
-        function = test_name
+    function = named.group(1) if named else _utest_function(utest) or test_name
     files = _UTEST_FILE.findall(utest)
     return function, files[-1].decode('ascii') if files else ''
 
