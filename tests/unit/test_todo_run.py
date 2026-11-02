@@ -20,9 +20,12 @@ _SPEC = importlib.util.spec_from_file_location('todo_run', str(_PATH))
 todo_run = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(todo_run)
 
-# 절 번호는 todo.md를 처리하면서 바뀌므로 SECTIONS에서 꼴로 고른다.
-PLAIN = next(n for n, (_, a) in todo_run.SECTIONS.items() if todo_run.LIST not in a)
-LISTED = next(n for n, (_, a) in todo_run.SECTIONS.items() if todo_run.LIST in a)
+# 실제 절은 todo.md를 처리하면서 바뀌므로, 실행 경로는 지어낸 절 둘로 본다.
+PLAIN, LISTED = '91', '92'
+FAKE_SECTIONS = {
+    PLAIN: ('견본 확인', ['tools/todo_run.py']),
+    LISTED: ('목록 확인', ['-m', 'ct_toolkit', 'io-apply', '--list', todo_run.LIST]),
+}
 
 
 TRACEBACK = ('Traceback (most recent call last):\n'
@@ -43,7 +46,8 @@ def _main(answers, run=None, pull='ok', tmp=None):
     """답을 차례로 넣어 main을 돌리고 (반환값, 화면, 실행 기록, 화면 지운 횟수)를 낸다."""
     answers, run, cleared, out = list(answers), run or _Run(), [], io.StringIO()
     with mock.patch.dict(os.environ, {'TODO_PULL': pull}), contextlib.redirect_stdout(out), \
-            mock.patch('tempfile.tempdir', tmp):
+            mock.patch('tempfile.tempdir', tmp), \
+            mock.patch.dict(todo_run.SECTIONS, FAKE_SECTIONS, clear=True):
         code = todo_run.main(ask=lambda _: answers.pop(0), run=run,
                              clear_screen=lambda: cleared.append(1))
     return code, out.getvalue(), run.calls, len(cleared)
@@ -54,7 +58,7 @@ class MainTest(unittest.TestCase):
         code, screen, calls, cleared = _main([PLAIN], run=_Run(0))
         self.assertEqual(code, 0)
         args, cwd, env = calls[0]
-        self.assertEqual(args[1:], todo_run.SECTIONS[PLAIN][1])
+        self.assertEqual(args[1:], FAKE_SECTIONS[PLAIN][1])
         self.assertTrue((todo_run.ROOT / args[1]).is_file())
         self.assertEqual(cwd, str(todo_run.ROOT))
         self.assertEqual(env['PYTHONUTF8'], '1')
