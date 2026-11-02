@@ -192,6 +192,20 @@ class LoadTest(unittest.TestCase):
         self.assertNotIn('dmy_stub_ret', test.variables)
         self.assertEqual(test.variables['return'].direction, 'out')
 
+    def test_repeated_known_section_marker_is_unreadable(self) -> None:
+        self._sample(project='good')
+        for marker in ('<input>', '<expect>', '<output>', '<toutput>'):
+            self._put('bad/{}.csv'.format(marker[1:-1]),
+                      _csv(header=HEADER + ',{},dmy_extra'.format(marker)))
+        got = load(self.root)
+        self.assertEqual(got.unreadable,
+                         ['bad/expect.csv', 'bad/input.csv', 'bad/output.csv', 'bad/toutput.csv'])
+        self.assertEqual([t.key for t in got.tests], ['good/UnitTests/dmy_calc_test0.csv'])
+
+    def test_repeated_unknown_section_marker_is_readable(self) -> None:
+        test = self._only(header=HEADER + ',<stub>,dmy_a,<stub>,dmy_b')
+        self.assertEqual(test.variables['dmy_x'].direction, 'in')
+
     def test_two_projects_same_file_name(self) -> None:
         self._sample(project='a')
         self._sample(project='b')
@@ -242,8 +256,21 @@ class RewriteTest(unittest.TestCase):
         self.assertEqual(self._rewrite({}), text)
         self.assertEqual(self._rewrite({'secret_absent': 'out'}), text)
         self.assertEqual(self._rewrite({'dmy_gain': 'in'}), text)  # 지금과 같은 지정
+        self.assertEqual(self._rewrite({'dmy_count': 'inout', 'dmy_level': 'out'}), text)
         bare = text.rstrip('\r\n')
         self.assertEqual(self._rewrite({}, text=bare), bare)
+        self.assertEqual(self._rewrite({'dmy_count': 'inout'}, text=bare), bare)
+
+    def test_change_keeps_line_ending_and_missing_final_one(self) -> None:
+        change = {'dmy_count': 'out'}
+        lf = self._rewrite(change, text=_sample_text(eol='\n'))
+        self.assertNotIn('\r', lf)
+        self.assertTrue(lf.endswith('\n'))
+        self.assertEqual(len(lf.split('\n')), 6)  # 줄 다섯과 끝의 빈 조각
+        bare = self._rewrite(change, text=_sample_text().rstrip('\r\n'))
+        self.assertFalse(bare.endswith('\n'))
+        self.assertEqual(len(bare.split('\r\n')), 5)
+        self.assertEqual(bare.count('\n'), bare.count('\r\n'))
 
     def test_inout_to_out_removes_from_input(self) -> None:
         got = self._rewrite({'dmy_count': 'out', 'dmy_hist': 'out', 'dmy_spare': ''})
@@ -255,13 +282,37 @@ class RewriteTest(unittest.TestCase):
             '<output>,dmy_count,dmy_hist[0],dmy_level,returnVar,'
             '<toutput>,dmy_count,dmy_hist[0],dmy_level,returnVar'))
 
-    def test_in_to_out_keeps_first_appearance_order(self) -> None:
+    def test_in_to_out_keeps_sorted_order(self) -> None:
         sections = _by_section(self._rewrite({'dmy_gain': 'out'}).split('\r\n')[2])
         self.assertEqual(sections['<expect>'],
                          ['dmy_count', 'dmy_gain', 'dmy_hist[0]', 'dmy_level', 'returnVar'])
         self.assertEqual(sections['<output>'], sections['<expect>'])
         self.assertEqual(sections['<toutput>'], sections['<expect>'])
         self.assertNotIn('dmy_gain', sections['<input>'])
+
+    def test_untouched_symbols_keep_their_order(self) -> None:
+        header = ',<input>,dmy_x,dmy_y,<expect>,dmy_a,dmy_x'
+        got = self._rewrite({'dmy_y': 'out'}, text=_sample_text(header))
+        sections = _by_section(got.split('\r\n')[2])
+        self.assertEqual(sections['<input>'], ['dmy_x'])
+        self.assertEqual(sections['<expect>'], ['dmy_a', 'dmy_x', 'dmy_y'])
+
+    def test_unsorted_section_gets_joiners_at_its_end(self) -> None:
+        header = ',<input>,dmy_b,dmy_a,<expect>,dmy_z,dmy_y'
+        one = self._rewrite({'dmy_a': 'inout'}, text=_sample_text(header))
+        self.assertEqual(one.split('\r\n')[2], (
+            ',<input>,dmy_b,dmy_a,<expect>,dmy_z,dmy_y,dmy_a,<output>,dmy_a,<toutput>,dmy_a'))
+        two = self._rewrite({'dmy_a': 'inout', 'dmy_b': 'inout'}, text=_sample_text(header))
+        self.assertEqual(_by_section(two.split('\r\n')[2])['<expect>'],
+                         ['dmy_z', 'dmy_y', 'dmy_b', 'dmy_a'])  # 머리글에 처음 나온 순서
+        gone = self._rewrite({'dmy_a': ''}, text=_sample_text(header))
+        self.assertEqual(gone.split('\r\n')[2], ',<input>,dmy_b,<expect>,dmy_z,dmy_y')
+
+    def test_section_without_change_stays_as_it_was(self) -> None:
+        header = ',<input>,dmy_b,dmy_a,<expect>,dmy_z,dmy_y'
+        got = self._rewrite({'dmy_z': 'inout'}, text=_sample_text(header))
+        self.assertEqual(_by_section(got.split('\r\n')[2])['<input>'], ['dmy_b', 'dmy_a', 'dmy_z'])
+        self.assertEqual(_by_section(got.split('\r\n')[2])['<expect>'], ['dmy_z', 'dmy_y'])
 
     def test_out_to_inout_adds_to_input(self) -> None:
         sections = _by_section(self._rewrite({'return': 'inout'}).split('\r\n')[2])
@@ -332,6 +383,49 @@ class RewriteTest(unittest.TestCase):
         self.assertEqual(split_fields(lines[3]), ['1', CASE_NAMES[0], '', '', '5', '', '', '', ''])
         reset = self._rewrite({'a': 'inout'}, True, _sample_text(',<expect>,a')).split('\r\n')
         self.assertEqual(reset[3], '1,"",,,,,,,')
+
+    def test_blank_header_cell_keeps_its_column_and_values(self) -> None:
+        header = ',<input>,a,,b,<expect>,c'
+        text = _sample_text(header, {3: '9'})  # 빈 머리글 칸 아래의 값
+        got = self._rewrite({'a': 'out'}, text=text).split('\r\n')
+        new = split_fields(got[2])
+        self.assertEqual(got[2], ',<input>,,b,<expect>,a,c,<output>,a,<toutput>,a')
+        self.assertEqual(split_fields(got[3])[2], '9')
+        self.assertEqual(new[2], '')
+        # 그 구역에 변화가 없으면 빈 칸도 제자리다
+        got = self._rewrite({'c': ''}, text=text).split('\r\n')
+        self.assertEqual(got[2], ',<input>,a,,b,<expect>')
+        self.assertEqual(split_fields(got[3])[3], '9')
+        # 앞 기호가 구역 끝에 들어올 때는 마지막 기호 뒤(뒤쪽 빈 칸 앞)에 놓인다
+        got = self._rewrite({'c': 'inout'}, text=text).split('\r\n')
+        self.assertEqual(got[2], ',<input>,a,,b,c,<expect>,c,<output>,c,<toutput>,c')
+        self.assertEqual(split_fields(got[3])[3], '9')
+        trailing = self._rewrite({'b': 'out'}, text=_sample_text(',<input>,a,b,', {4: '8'}))
+        self.assertEqual(trailing.split('\r\n')[2], ',<input>,a,,<expect>,b,<output>,b,<toutput>,b')
+        self.assertEqual(split_fields(trailing.split('\r\n')[3])[3], '8')
+
+    def test_case_fields_beyond_the_header_are_kept(self) -> None:
+        lines = ['CT(Controller Tester) Test Data', 'test name:x_test0,""', ',<input>,a,b',
+                 '1,"",5,6,extra1,extra2']
+        got = self._rewrite({'a': 'out'}, text='\r\n'.join(lines) + '\r\n').split('\r\n')
+        fields = split_fields(got[3])
+        self.assertEqual(got[2], ',<input>,b,<expect>,a,<output>,a,<toutput>,a')
+        self.assertEqual(fields[:9], ['1', '""', '6', '', '', '', '', '', ''])
+        self.assertEqual(fields[9:], ['extra1', 'extra2'])
+
+    def test_repeated_known_marker_is_not_rewritten(self) -> None:
+        text = _sample_text(',<input>,a,<input>,b')
+        self.assertEqual(self._rewrite({'a': 'out'}, text=text), text)
+
+    def test_directions_are_validated_first(self) -> None:
+        for bad in ('secret', 'OUT', None):
+            for text in (_sample_text(), '', 'CT\r\n'):
+                with self.assertRaises(ValueError) as ctx:
+                    ct_export.rewrite_csv(text, {'dmy_gain': 'in', 'secret_var': bad}, False)
+                self.assertEqual(str(ctx.exception), ct_export.E_DIRECTION)
+                self.assertNotIn('secret', str(ctx.exception))
+        for good in ('in', 'out', 'inout', ''):
+            ct_export.rewrite_csv(_sample_text(), {'dmy_gain': good}, False)
 
 
 class WriteCopyTest(unittest.TestCase):

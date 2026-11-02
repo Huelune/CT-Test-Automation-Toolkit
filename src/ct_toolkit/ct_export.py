@@ -12,13 +12,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Collection, Dict, List, Mapping, Optional, Set, Tuple
+from typing import Dict, List, Mapping, Optional, Set, Tuple
 
 from .io_match import CtTest, CtVar
 
 E_EXPORT_OPEN = '내보낸 폴더를 읽을 수 없음: --export에 [테스트 내보내기]로 고른 폴더를 주었는지 확인'
 E_EXPORT_EMPTY = ('내보낸 폴더에 테스트 데이터 CSV가 없음: '
                   '[테스트 내보내기]에서 유닛 테스트의 테스트 데이터를 체크했는지 확인')
+E_DIRECTION = '지정 값이 in, out, inout, 빈 값(해제) 중 하나가 아님'  # 값은 내부 정보일 수 있어 넣지 않는다
 
 FIRST_LINE = 'CT(Controller Tester) Test Data'
 NAME_PREFIX = 'test name:'
@@ -98,6 +99,12 @@ def _blocks(header: List[str]) -> List[Tuple[int, List[int]]]:
     return blocks
 
 
+def _repeats_section(header: List[str]) -> bool:
+    """알려진 구역 표시(`<input>` 등)가 두 번 이상 나온다. 모르는 구역은 되풀이되어도 된다."""
+    found = [cell.strip() for cell in header if cell.strip() in SECTIONS]
+    return len(found) != len(set(found))
+
+
 def _symbol_columns(header: List[str]) -> Dict[str, List[Tuple[int, str]]]:
     """구역 표시 -> [(칸 번호, 기호)]. 빈 칸은 기호가 아니다."""
     columns: Dict[str, List[Tuple[int, str]]] = {}
@@ -169,6 +176,8 @@ def _read_test(csv_path: Path, key: str) -> Optional[CtTest]:
     header = split_fields(lines[2])
     if header[0].strip() or not {S_INPUT, S_EXPECT} & {c.strip() for c in header}:
         return None
+    if _repeats_section(header):  # 어느 칸이 어느 구역인지 정할 수 없어 고쳐 쓰지 않는다
+        return None
     test_name = split_fields(lines[1])[0][len(NAME_PREFIX):].strip()
     cases = [split_fields(line) for line in lines[3:] if line.strip()]
     function, file = _function_and_file(csv_path, test_name)
@@ -208,17 +217,45 @@ def _split_end(row: str) -> Tuple[str, str]:
     return row, ''
 
 
+def _section_cells(header: List[str], cells: List[int], members: Set[str],
+                   first: Mapping[str, int]) -> List[Tuple[str, Optional[int]]]:
+    """한 구역의 새 칸들 [(머리글 글, 케이스 값을 가져올 원래 칸 번호 또는 None)].
+
+    남는 기호와 빈 칸은 원래 순서와 자리 그대로다(빈 칸은 어느 변수에도 안 속하므로 값째 남는다).
+    구역의 기호가 원래 오름차순(파이썬 문자열 순서)이면 새로 드는 기호는 그 순서의 자리에, 아니면
+    마지막 기호 뒤에 머리글에 처음 나온 순서로 놓는다. 바뀌는 것이 없으면 구역은 그대로다.
+    """
+    original = [header[i].strip() for i in cells if header[i].strip()]
+    kept = [i for i in cells if not header[i].strip() or header[i].strip() in members]
+    last = max((n for n, i in enumerate(kept) if header[i].strip()), default=-1)
+    body, tail = kept[:last + 1], kept[last + 1:]  # 뒤쪽 빈 칸은 새 기호 뒤로 간다
+    ordered = original == sorted(original)
+    have = set(original)
+    joiners = sorted(s for s in members if s not in have)
+    if not ordered:
+        joiners.sort(key=first.__getitem__)
+    result: List[Tuple[str, Optional[int]]] = []
+    for i in body:
+        symbol = header[i].strip()
+        while ordered and symbol and joiners and joiners[0] < symbol:
+            result.append((header[first[joiners[0]]], None))
+            del joiners[0]
+        result.append((header[i], i))
+    result.extend((header[first[symbol]], None) for symbol in joiners)
+    result.extend((header[i], i) for i in tail)
+    return result
+
+
 def _new_header(header: List[str],
                 directions: Mapping[str, str]) -> Tuple[List[str], List[Optional[int]]]:
     """고친 머리글과, 새 칸마다 케이스 값을 가져올 원래 칸 번호(없던 칸은 None).
 
     네 구역의 기호는 변수 이름이 `directions`에 있으면 새 지정대로, 없으면 원래 든 구역 그대로
-    넣는다. 구역 안 순서는 머리글에 처음 나온 순서다. 모르는 구역은 칸마다 그대로 둔다. 같은
-    구역 표시가 여러 번 나오면 첫 구역으로 합친다.
+    넣는다. 구역 안 순서와 빈 칸은 `_section_cells`를 따른다. 모르는 구역은 칸마다 그대로 둔다.
+    알려진 구역 표시가 되풀이되는 머리글은 받지 않는다(`_repeats_section`).
     """
     blocks = _blocks(header)
     first: Dict[str, int] = {}  # 기호 -> 네 구역 중 처음 나온 칸
-    column: Dict[Tuple[str, str], int] = {}  # (구역, 기호) -> 그 구역의 원래 칸
     held: Dict[str, Set[str]] = {}  # 기호 -> 원래 든 구역
     for marker, cells in blocks:
         section = header[marker].strip()
@@ -228,26 +265,19 @@ def _new_header(header: List[str],
             symbol = header[i].strip()
             if symbol:
                 first.setdefault(symbol, i)
-                column.setdefault((section, symbol), i)
                 held.setdefault(symbol, set()).add(section)
-    sections_of: Dict[str, Collection[str]] = {}
+    members: Dict[str, Set[str]] = {section: set() for section in SECTIONS}
     for symbol in first:
         variable = symbol_variable(symbol)[0]
-        if variable in directions:
-            sections_of[symbol] = _DIRECTION_SECTIONS[directions[variable]]
-        else:
-            sections_of[symbol] = held[symbol]
-    ordered = sorted(first, key=first.__getitem__)
-    members = {section: [s for s in ordered if section in sections_of[s]] for section in SECTIONS}
+        now = _DIRECTION_SECTIONS[directions[variable]] if variable in directions else held[symbol]
+        for section in now:
+            members[section].add(symbol)
 
     # (구역 이름, 구역 표시 칸 또는 None, 모르는 구역이면 그 뒤 칸들)
     plan: List[Tuple[str, Optional[int], Optional[List[int]]]] = []
     for marker, cells in blocks:
         section = header[marker].strip()
-        if section not in SECTIONS:
-            plan.append((section, marker, cells))
-        elif not any(item[0] == section for item in plan):
-            plan.append((section, marker, None))
+        plan.append((section, marker, None if section in SECTIONS else cells))
     for k, section in enumerate(SECTIONS):  # 없는 구역 표시는 순서에 맞는 자리에 넣는다
         if members[section] and not any(item[0] == section for item in plan):
             known = [(i, SECTIONS.index(item[0])) for i, item in enumerate(plan)
@@ -256,6 +286,7 @@ def _new_header(header: List[str],
             after = [i for i, rank in known if rank > k]
             at = max(before) + 1 if before else (min(after) if after else len(plan))
             plan.insert(at, (section, None, None))
+    cells_of = {header[marker].strip(): cells for marker, cells in blocks}
 
     top = blocks[0][0]  # 첫 구역 표시 칸. 케이스 이름이 이 칸 아래에 있다
     new = header[:top]
@@ -263,13 +294,12 @@ def _new_header(header: List[str],
     for section, marker, cells in plan:
         new.append(header[marker] if marker is not None else section)
         source.append(marker)
-        if cells is not None:
-            new.extend(header[i] for i in cells)
-            source.extend(cells)
+        if cells is None:
+            cells_here = _section_cells(header, cells_of.get(section, []), members[section], first)
         else:
-            for symbol in members[section]:
-                new.append(header[first[symbol]])
-                source.append(column.get((section, symbol)))
+            cells_here = [(header[i], i) for i in cells]
+        new.extend(text for text, _ in cells_here)
+        source.extend(i for _, i in cells_here)
     if source[top] != top:  # 앞에 새 구역 표시가 들어갔다. 케이스 이름도 새 첫 표시 아래로 옮긴다
         source = [None if s == top else s for s in source]
         source[top] = top
@@ -279,22 +309,22 @@ def _new_header(header: List[str],
 def rewrite_csv(text: str, directions: Mapping[str, str], reset_cases: bool) -> str:
     """CT 테스트 데이터 CSV 글의 머리글과 케이스 칸을 `directions`대로 고친다.
 
-    `directions`는 변수 이름 -> 'in'|'out'|'inout'|''(해제). 글에 없는 변수는 무시하고, 목록에 없는
-    변수의 기호는 구역마다 원래 자리 그대로다. 1·2줄, 줄 끝, 마지막 줄 끝의 유무도 그대로다.
-    `reset_cases`면 케이스를 지우고 번호 `1`, 이름 `""`, 나머지 빈칸인 한 줄만 둔다.
-    바꿀 것이 없으면 `text`를 그대로 돌려준다.
+    `directions`는 변수 이름 -> 'in'|'out'|'inout'|''(해제)이고 값이 그 밖이면 `ValueError`
+    (`E_DIRECTION`)다. 글에 없는 변수는 무시하고, 목록에 없는 변수의 기호는 구역마다 원래 자리
+    그대로다. 1·2줄, 줄 끝, 마지막 줄 끝의 유무도 그대로다. 머리글보다 넓은 케이스 칸은 고친 줄
+    뒤에 붙여 둔다. `reset_cases`면 케이스를 지우고 번호 `1`, 이름 `""`, 나머지 빈칸인 한 줄만 둔다.
+    바꿀 것이 없거나 CT 머리글 꼴이 아니면(구역 표시가 없거나 알려진 구역 표시가 되풀이됨)
+    `text`를 그대로 돌려준다.
     """
+    allowed = tuple(_DIRECTION_SECTIONS)
+    if any(value not in allowed for value in directions.values()):
+        raise ValueError(E_DIRECTION)
     rows = [_split_end(row) for row in _ROW.findall(text)]
     if len(rows) < 3:
         return text
     header = split_fields(rows[2][0])
     blocks = _blocks(header)
-    if not blocks:
-        return text
-    present = {symbol_variable(header[i].strip())[0]
-               for marker, cells in blocks if header[marker].strip() in SECTIONS
-               for i in cells if header[i].strip()}
-    if not reset_cases and not any(name in directions for name in present):
+    if not blocks or _repeats_section(header):
         return text
     new, source = _new_header(header, directions)
     if not reset_cases and new == header:
@@ -316,8 +346,8 @@ def rewrite_csv(text: str, directions: Mapping[str, str], reset_cases: bool) -> 
         for body, end in rows[3:]:
             if body.strip():
                 fields = split_fields(body)
-                body = ','.join(fields[s] if s is not None and s < len(fields) else ''
-                                for s in source)
+                row = [fields[s] if s is not None and s < len(fields) else '' for s in source]
+                body = ','.join(row + fields[len(header):])
             out.append((body, end))
     return ''.join(body + end for body, end in out)
 
