@@ -126,6 +126,7 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
     not_exported = set()
     picked: Dict[str, CtTest] = {}  # 목록 줄이 고른 테스트(줄을 건너뛰었어도 센다)
     found: Dict[str, Set[str]] = {}  # 테스트 key -> 목록 줄이 찾은 변수(건너뛰었어도 센다)
+    named: Dict[str, Set[str]] = {}  # 함수 -> 테스트를 못 고른 줄이 이름 붙인 변수와 그 `_mem` 꼴
 
     def skip(r: ListRow, reason: str) -> None:
         skips.append(Skip(r.row, r.function, r.variable, reason))
@@ -139,6 +140,8 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
             var = _find(test, r.variable)
             if var is not None:
                 found.setdefault(test.key, set()).add(var.name)
+        else:  # 함수 여럿이나 파일이 달라 버려진 줄도 그 변수가 어느 테스트의 것인지는 모른다
+            named.setdefault(r.function, set()).update((r.variable, r.variable + '_mem'))
         if len({g.direction for g in group}) > 1:
             for g in group:
                 skip(g, R_CONFLICT)
@@ -167,8 +170,10 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
     for key, test in picked.items():
         rel: List[str] = []
         keep: List[str] = []
+        listed_names = named.get(test.function, ())
         for v in test.variables.values():
-            if v.supported and v.direction and v.name not in found.get(key, ()):
+            if (v.supported and v.direction and v.name not in found.get(key, ())
+                    and v.name not in listed_names):
                 # 값이 든 변수를 해제하면 값을 잃으므로 케이스를 지울 때만 해제한다
                 (rel if reset_cases or not v.has_values else keep).append(v.name)
         if rel:

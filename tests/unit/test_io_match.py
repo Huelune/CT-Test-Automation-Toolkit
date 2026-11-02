@@ -206,6 +206,26 @@ class ChangesAndReleaseTest(unittest.TestCase):
         self.assertEqual([s.reason for s in got.skips], [R_CONFLICT, R_CONFLICT])
         self.assertEqual(got.released, {'k': ['dmy_gone']})
 
+    def test_variable_of_row_dropped_as_multi_is_not_released(self) -> None:
+        # 함수 여럿으로 버려진 줄이 이름 붙인 변수(와 그 _mem)는 다른 줄이 고른 테스트에서도 해제하지 않는다
+        a = _test('ka', 'dmy_f', 'src\\a.c')
+        b = _test('kb', 'dmy_f', 'src\\b.c', dmy_x=CtVar('dmy_x', ''), dmy_y=CtVar('dmy_y', 'in'),
+                  dmy_z_mem=CtVar('dmy_z_mem', 'out'), dmy_gone=CtVar('dmy_gone', 'in'))
+        rows = [_row(2, 'dmy_f', 'dmy_y'), _row(3, 'dmy_f', 'dmy_z'),
+                _row(4, 'dmy_f', 'dmy_x', 'in', file='b.c')]
+        got = match(rows, [a, b])
+        self.assertEqual([s.reason for s in got.skips], [R_MULTI, R_MULTI])
+        self.assertEqual(got.applied, {'kb': {'dmy_x': 'in'}})
+        self.assertEqual(got.released, {'kb': ['dmy_gone']})  # dmy_y, dmy_z_mem은 건드리지 않는다
+
+    def test_variable_of_row_for_other_file_is_not_released(self) -> None:
+        # 파일이 달라 내보내지 않은 것으로 센 줄도 그 함수의 줄이다
+        a = _test('ka', 'dmy_f', 'src\\a.c', dmy_x=CtVar('dmy_x', ''), dmy_y=CtVar('dmy_y', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_x', 'in', file='a.c'),
+                     _row(3, 'dmy_f', 'dmy_y', 'in', file='b.c')], [a])
+        self.assertEqual((got.not_exported, got.released), (['dmy_f'], {}))
+        self.assertEqual(got.applied, {'ka': {'dmy_x': 'in'}})
+
     def test_conflict_for_unexported_function_is_not_not_exported(self) -> None:
         got = match([_row(2, 'dmy_f', 'dmy_x', 'in'), _row(3, 'dmy_f', 'dmy_x', 'out')], [])
         self.assertEqual((got.not_exported, got.count(R_CONFLICT)), ([], 2))
