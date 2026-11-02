@@ -25,6 +25,12 @@ LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들�
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
 SECTIONS = {
     '5': ('실제 Codebeamer 목록 확인', ['-m', 'ct_toolkit', 'io-apply', '--list', LIST]),
+    '11': ('io-apply로 견본 CSV 고치기',
+           ['-m', 'ct_toolkit', 'io-apply', '--list', 'examples/ct_sample/io_list.example.xlsx',
+            '--export', 'C:/ctsample/out/1', '--reset-cases']),
+    '12': ('다시 내보낸 견본 확인',
+           ['-m', 'ct_toolkit', 'io-apply', '--list', 'examples/ct_sample/io_list.example.xlsx',
+            '--export', 'C:/ctsample/out/9']),
 }
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
