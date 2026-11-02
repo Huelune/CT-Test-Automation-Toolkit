@@ -1,9 +1,9 @@
 """CT [테스트 내보내기] 폴더 읽기와 지정을 바꾼 사본 쓰기.
 
 CT 2025는 입력·출력 지정을 테스트 데이터 CSV의 머리글 줄에 적는다(docs/design/io-designation.md
-"견본 결과"). 폴더 안의 CSV를 `CtTest`로 읽는다. 함수 이름은 CSV 둘째 줄의 테스트 이름에서,
-안 되면 같은 이름 `.utest`에서 얻고, `.utest`는 읽기만 한다. 사본은 CSV 머리글과 케이스 칸만
-고쳐 원래 인코딩·줄 끝으로 쓴다(`rewrite_csv`, `write_copy`).
+"견본 결과"). 폴더 아래 `UnitTests` 폴더의 CSV를 `CtTest`로 읽는다. 함수 이름은 CSV 둘째 줄의
+테스트 이름에서, 안 되면 같은 이름 `.utest`에서 얻고, `.utest`는 읽기만 한다. 사본은 CSV 머리글과
+케이스 칸만 고쳐 원래 인코딩·줄 끝으로 쓴다(`rewrite_csv`, `write_copy`).
 화면에 나갈 수 있는 `ExportError` 문구는 정해 둔 상수뿐이다(경로·예외 원문을 넣지 않는다).
 """
 
@@ -19,7 +19,9 @@ from .io_match import CtTest, CtVar
 E_EXPORT_OPEN = '내보낸 폴더를 읽을 수 없음: --export에 [테스트 내보내기]로 고른 폴더를 주었는지 확인'
 E_EXPORT_EMPTY = ('내보낸 폴더에 테스트 데이터 CSV가 없음: '
                   '[테스트 내보내기]에서 유닛 테스트의 테스트 데이터를 체크했는지 확인')
-E_DIRECTION = '지정 값이 in, out, inout, 빈 값(해제) 중 하나가 아님'  # 값은 내부 정보일 수 있어 넣지 않는다
+E_EXPORT_NOT_CT = ('내보낸 폴더의 CSV가 CT 테스트 데이터 꼴이 아님: '
+                   'CT [테스트 내보내기]로 만든 폴더를 주었는지 확인')
+E_DIRECTION ='지정 값이 in, out, inout, 빈 값(해제) 중 하나가 아님'  # 값은 내부 정보일 수 있어 넣지 않는다
 
 FIRST_LINE = 'CT(Controller Tester) Test Data'
 NAME_PREFIX = 'test name:'
@@ -38,7 +40,8 @@ _TEST_NAME = re.compile(r'(.+)_test\d+')
 _UTEST_CANDIDATE = re.compile(rb'(?=[A-Za-z_]\w*\()')  # 시그니처 글자열이 시작할 수 있는 자리
 _UTEST_FUNCTION = re.compile(rb'([A-Za-z_]\w*)\(')
 _PRINTABLE = re.compile(rb'[\x20-\x7e]+')
-_UTEST_FILE = re.compile(rb'\\([\x21-\x5b\x5d-\x7e]+?\.(?:c|cc|cpp|cxx))(?![\w])')
+_UTEST_FILE = re.compile(rb'\\([\x21-\x5b\x5d-\x7e]+?\.(?:c|cc|cpp|cxx))(?![\w])', re.IGNORECASE)
+UNIT_DIR = 'unittests'  # 유닛 테스트 CSV가 든 폴더 이름(대소문자 무시). 통합 테스트 CSV는 읽지 않는다
 
 
 class ExportError(Exception):
@@ -185,6 +188,8 @@ def _read_test(csv_path: Path, key: str) -> Optional[Tuple[CtTest, bool]]:
     읽기·디코딩 오류는 부르는 쪽이 받는다."""
     text, _ = decode_csv(csv_path.read_bytes())
     lines = _LINE_END.split(text)
+    if any(line.count('"') % 2 for line in lines):  # 따옴표 안의 줄바꿈: 줄 단위로는 칸을 맞출 수 없다
+        return None
     if len(lines) < 3 or lines[0].strip() != FIRST_LINE or not lines[1].startswith(NAME_PREFIX):
         return None
     header = split_fields(lines[2])
@@ -200,12 +205,17 @@ def _read_test(csv_path: Path, key: str) -> Optional[Tuple[CtTest, bool]]:
 
 
 def load_tests(export_dir: Path) -> ExportRead:
-    """내보낸 폴더 아래 모든 테스트 데이터 CSV를 읽는다. CT 꼴이 아닌 CSV는 `unreadable`에 모은다."""
+    """내보낸 폴더 아래 `UnitTests` 폴더의 테스트 데이터 CSV를 읽는다.
+
+    다른 폴더의 CSV(통합 테스트 등)는 단위 테스트가 아니라 무시한다. CT 꼴이 아닌 CSV는 `unreadable`에
+    모은다. `UnitTests`의 CSV가 없으면 `E_EXPORT_EMPTY`, 있는데 하나도 못 읽으면 `E_EXPORT_NOT_CT`다.
+    """
     if not export_dir.is_dir():
         raise ExportError(E_EXPORT_OPEN)
     try:
-        found = sorted((p.relative_to(export_dir).as_posix(), p)
-                       for p in export_dir.rglob('*') if p.suffix.lower() == '.csv' and p.is_file())
+        found = sorted((p.relative_to(export_dir).as_posix(), p) for p in export_dir.rglob('*')
+                       if p.suffix.lower() == '.csv' and p.parent.name.lower() == UNIT_DIR
+                       and p.is_file())
     except OSError:
         raise ExportError(E_EXPORT_OPEN) from None
     tests: List[CtTest] = []
@@ -223,7 +233,7 @@ def load_tests(export_dir: Path) -> ExportRead:
             if read[1]:
                 renamed.append(key)
     if not tests:
-        raise ExportError(E_EXPORT_EMPTY)
+        raise ExportError(E_EXPORT_NOT_CT if unreadable else E_EXPORT_EMPTY)
     return ExportRead(tests, unreadable, renamed)
 
 

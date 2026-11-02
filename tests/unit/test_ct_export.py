@@ -16,7 +16,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from ct_toolkit import ct_export  # noqa: E402
 from ct_toolkit.ct_export import (  # noqa: E402
-    E_EXPORT_EMPTY, E_EXPORT_OPEN, ExportError, decode_csv, split_fields, symbol_variable)
+    E_EXPORT_EMPTY, E_EXPORT_NOT_CT, E_EXPORT_OPEN, ExportError, decode_csv, split_fields,
+    symbol_variable)
 from ct_toolkit.io_list import ListRow  # noqa: E402
 from ct_toolkit.io_match import R_HAS_VALUES, match  # noqa: E402
 
@@ -250,11 +251,12 @@ class LoadTest(unittest.TestCase):
     def test_repeated_known_section_marker_is_unreadable(self) -> None:
         self._sample(project='good')
         for marker in ('<input>', '<expect>', '<output>', '<toutput>'):
-            self._put('bad/{}.csv'.format(marker[1:-1]),
+            self._put('bad/UnitTests/{}.csv'.format(marker[1:-1]),
                       _csv(header=HEADER + ',{},dmy_extra'.format(marker)))
         got = load(self.root)
-        self.assertEqual(got.unreadable,
-                         ['bad/expect.csv', 'bad/input.csv', 'bad/output.csv', 'bad/toutput.csv'])
+        self.assertEqual(got.unreadable, [
+            'bad/UnitTests/expect.csv', 'bad/UnitTests/input.csv', 'bad/UnitTests/output.csv',
+            'bad/UnitTests/toutput.csv'])
         self.assertEqual([t.key for t in got.tests], ['good/UnitTests/dmy_calc_test0.csv'])
 
     def test_repeated_unknown_section_marker_is_readable(self) -> None:
@@ -270,16 +272,40 @@ class LoadTest(unittest.TestCase):
 
     def test_non_ct_csv_is_unreadable(self) -> None:
         self._sample()
-        self._put('other/x.csv', b'a,b\r\n')
+        self._put('ctsample/UnitTests/x.csv', b'a,b\r\n')
         got = load(self.root)
-        self.assertEqual(got.unreadable, ['other/x.csv'])
+        self.assertEqual(got.unreadable, ['ctsample/UnitTests/x.csv'])
         self.assertEqual(len(got.tests), 1)
 
     def test_undecodable_csv_is_unreadable(self) -> None:
         self._sample()
-        self._put('other/bad.csv', b'\xff\xfe\x80\x81\xff')
+        self._put('ctsample/UnitTests/bad.csv', b'\xff\xfe\x80\x81\xff')
         got = load(self.root)
-        self.assertEqual(got.unreadable, ['other/bad.csv'])
+        self.assertEqual(got.unreadable, ['ctsample/UnitTests/bad.csv'])
+
+    def test_only_unit_tests_folders_are_read(self) -> None:
+        # 통합 테스트 등 다른 폴더의 CSV는 단위 테스트가 아니라 읽지도 읽지 못한 것으로 세지도 않는다
+        self._sample()
+        self._put('ctsample/IntegrationTests/x.csv', _csv(name='dmy_other_test0'))
+        self._put('ctsample/IntegrationTests/y.csv', b'a,b\r\n')
+        self._put('loose.csv', _csv(name='dmy_other_test1'))
+        got = load(self.root)
+        self.assertEqual(([t.key for t in got.tests], got.unreadable, got.renamed),
+                         (['ctsample/UnitTests/dmy_calc_test0.csv'], [], []))
+
+    def test_unit_tests_folder_name_ignores_case(self) -> None:
+        self._put('p/unittests/dmy_calc_test0.csv', _csv())
+        self._put('q/UNITTESTS/dmy_calc_test0.csv', _csv())
+        self.assertEqual([t.key for t in load(self.root).tests],
+                         ['p/unittests/dmy_calc_test0.csv', 'q/UNITTESTS/dmy_calc_test0.csv'])
+
+    def test_csv_with_quoted_newline_is_unreadable(self) -> None:
+        # 따옴표 안의 줄바꿈은 줄 단위로 읽는 이 읽기로는 칸을 맞출 수 없다
+        self._sample()
+        self._put('ctsample/UnitTests/dmy_nl_test0.csv', _csv(case='1,"a\r\nb"'))
+        got = load(self.root)
+        self.assertEqual(got.unreadable, ['ctsample/UnitTests/dmy_nl_test0.csv'])
+        self.assertEqual(len(got.tests), 1)
 
     def test_utf8_bom_csv_is_read(self) -> None:
         text = _csv().decode('cp949')
@@ -292,14 +318,32 @@ class LoadTest(unittest.TestCase):
             load(self.root / 'secret_missing')
         self.assertEqual(str(ctx.exception), E_EXPORT_OPEN)
 
-    def test_no_readable_csv_raises(self) -> None:
-        folders: List[Path] = [self.root / 'empty', self.root / 'not_ct']
+    def test_no_unit_test_csv_raises_empty(self) -> None:
+        folders: List[Path] = [self.root / 'empty', self.root / 'other_only']
         folders[0].mkdir()
-        self._put('not_ct/x.csv', b'a,b\r\n')
+        self._put('other_only/IntegrationTests/x.csv', _csv())  # 유닛 테스트 CSV가 아니다
+        self._put('other_only/x.csv', b'a,b\r\n')
         for folder in folders:
             with self.assertRaises(ExportError) as ctx:
                 load(folder)
             self.assertEqual(str(ctx.exception), E_EXPORT_EMPTY)
+
+    def test_unit_test_csv_none_ct_shaped_raises_not_ct(self) -> None:
+        self._put('not_ct/UnitTests/x.csv', b'a,b\r\n')
+        self._put('bad/UnitTests/y.csv', b'\xff\xfe\x80\x81\xff')
+        for folder in ('not_ct', 'bad'):
+            with self.assertRaises(ExportError) as ctx:
+                load(self.root / folder)
+            self.assertEqual(str(ctx.exception), E_EXPORT_NOT_CT)
+        self.assertNotEqual(E_EXPORT_NOT_CT, E_EXPORT_EMPTY)
+        self.assertEqual(E_EXPORT_NOT_CT, '내보낸 폴더의 CSV가 CT 테스트 데이터 꼴이 아님: '
+                         'CT [테스트 내보내기]로 만든 폴더를 주었는지 확인')
+
+    def test_utest_source_file_extension_ignores_case(self) -> None:
+        for ext in ('C', 'CPP', 'Cxx'):
+            self._sample(project=ext, utest=UTEST.replace(b'dmy_io.c', ('dmy_io.' + ext).encode()))
+        got = {t.key.split('/')[0]: t.file for t in load(self.root).tests}
+        self.assertEqual(got, {'C': 'dmy_io.C', 'CPP': 'dmy_io.CPP', 'Cxx': 'dmy_io.Cxx'})
 
 
 class RewriteTest(unittest.TestCase):
