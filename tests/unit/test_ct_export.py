@@ -1,4 +1,4 @@
-"""ct_toolkit.ct_export 읽기 단위 테스트 (stdlib unittest).
+"""ct_toolkit.ct_export 읽기·사본 쓰기 단위 테스트 (stdlib unittest).
 
 실행:
     python -m unittest discover -s tests/unit
@@ -10,7 +10,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
@@ -40,6 +40,36 @@ def _case(header: str = HEADER, values: Optional[dict] = None) -> str:
     for index, value in (values or {}).items():
         fields[index] = value
     return ','.join(fields)
+
+
+CASE_NAMES = ('"#ID#a,b#ID#"', '"#ID#견본#ID#"')
+
+
+def _sample_text(header: str = HEADER, values: Optional[dict] = None, eol: str = '\r\n') -> str:
+    """견본 CSV 글: 케이스 두 줄(이름은 쉼표가 든 것과 한글). `values`는 {칸 번호: 값}."""
+    lines = ['CT(Controller Tester) Test Data', 'test name:dmy_calc_test0,""', header]
+    for name in CASE_NAMES:
+        fields = split_fields(_case(header, values))
+        fields[1] = name
+        lines.append(','.join(fields))
+    return eol.join(lines) + eol
+
+
+def _column(header: List[str], section: str, symbol: str) -> int:
+    """그 구역 안의 기호 칸 번호."""
+    return header.index(symbol, header.index(section))
+
+
+def _by_section(header_line: str) -> Dict[str, List[str]]:
+    """구역 표시 -> 그 구역의 기호들(머리글 순서)."""
+    found: Dict[str, List[str]] = {}
+    section: List[str] = []
+    for cell in split_fields(header_line)[1:]:
+        if cell.startswith('<'):
+            section = found.setdefault(cell, [])
+        else:
+            section.append(cell)
+    return found
 
 
 def _csv(name: str = 'dmy_calc_test0', header: str = HEADER, case: Optional[str] = None) -> bytes:
@@ -156,6 +186,12 @@ class LoadTest(unittest.TestCase):
         self.assertEqual(test.variables['p'].direction, 'in')
         self.assertTrue(test.variables['dmy_x'].supported)
 
+    def test_unknown_section_symbols_are_not_variables(self) -> None:
+        header = HEADER.replace(',<output>,', ',<stub>,dmy_stub_ret,<output>,', 1)
+        test = self._only(header=header)
+        self.assertNotIn('dmy_stub_ret', test.variables)
+        self.assertEqual(test.variables['return'].direction, 'out')
+
     def test_two_projects_same_file_name(self) -> None:
         self._sample(project='a')
         self._sample(project='b')
@@ -195,6 +231,169 @@ class LoadTest(unittest.TestCase):
             with self.assertRaises(ExportError) as ctx:
                 load(folder)
             self.assertEqual(str(ctx.exception), E_EXPORT_EMPTY)
+
+
+class RewriteTest(unittest.TestCase):
+    def _rewrite(self, directions: dict, reset: bool = False, text: Optional[str] = None) -> str:
+        return ct_export.rewrite_csv(_sample_text() if text is None else text, directions, reset)
+
+    def test_no_change_is_identical(self) -> None:
+        text = _sample_text()
+        self.assertEqual(self._rewrite({}), text)
+        self.assertEqual(self._rewrite({'secret_absent': 'out'}), text)
+        self.assertEqual(self._rewrite({'dmy_gain': 'in'}), text)  # 지금과 같은 지정
+        bare = text.rstrip('\r\n')
+        self.assertEqual(self._rewrite({}, text=bare), bare)
+
+    def test_inout_to_out_removes_from_input(self) -> None:
+        got = self._rewrite({'dmy_count': 'out', 'dmy_hist': 'out', 'dmy_spare': ''})
+        lines = got.split('\r\n')
+        self.assertEqual(lines[:2], _sample_text().split('\r\n')[:2])
+        self.assertEqual(lines[2], (
+            ',<input>,dmy_gain,dmy_limit.dmy_hi,dmy_limit.dmy_lo,dmy_mode,dmy_ptr_mem[0],dmy_x,'
+            '<expect>,dmy_count,dmy_hist[0],dmy_level,returnVar,'
+            '<output>,dmy_count,dmy_hist[0],dmy_level,returnVar,'
+            '<toutput>,dmy_count,dmy_hist[0],dmy_level,returnVar'))
+
+    def test_in_to_out_keeps_first_appearance_order(self) -> None:
+        sections = _by_section(self._rewrite({'dmy_gain': 'out'}).split('\r\n')[2])
+        self.assertEqual(sections['<expect>'],
+                         ['dmy_count', 'dmy_gain', 'dmy_hist[0]', 'dmy_level', 'returnVar'])
+        self.assertEqual(sections['<output>'], sections['<expect>'])
+        self.assertEqual(sections['<toutput>'], sections['<expect>'])
+        self.assertNotIn('dmy_gain', sections['<input>'])
+
+    def test_out_to_inout_adds_to_input(self) -> None:
+        sections = _by_section(self._rewrite({'return': 'inout'}).split('\r\n')[2])
+        self.assertEqual(sections['<input>'][-1], 'returnVar')
+        self.assertIn('returnVar', sections['<expect>'])
+        self.assertIn('returnVar', sections['<toutput>'])
+
+    def test_values_follow_their_columns(self) -> None:
+        old = split_fields(HEADER)
+        old_x = _column(old, '<input>', 'dmy_x')
+        values = {old_x: '7', _column(old, '<expect>', 'dmy_level'): '3',
+                  _column(old, '<output>', 'returnVar'): '9'}
+        got = self._rewrite({'dmy_count': 'out', 'dmy_spare': ''}, text=_sample_text(values=values))
+        lines = got.split('\r\n')
+        header = split_fields(lines[2])
+        x = _column(header, '<input>', 'dmy_x')
+        self.assertNotEqual(x, old_x)
+        for row, name in zip(lines[3:5], CASE_NAMES):
+            fields = split_fields(row)
+            self.assertEqual(len(fields), len(header))
+            self.assertEqual((fields[0], fields[header.index('<input>')]), ('1', name))
+            self.assertEqual(fields[x], '7')
+            self.assertEqual(fields[_column(header, '<expect>', 'dmy_level')], '3')
+            self.assertEqual(fields[_column(header, '<output>', 'returnVar')], '9')
+            self.assertEqual(sum(1 for f in fields if f), 5)  # 번호, 이름, 값 셋뿐
+        self.assertEqual(lines[5:], [''])
+
+    def test_reset_cases_leaves_one_empty_case(self) -> None:
+        old = split_fields(HEADER)
+        text = _sample_text(values={_column(old, '<input>', 'dmy_x'): '7'})
+        lines = self._rewrite({'dmy_gain': 'out'}, True, text).split('\r\n')
+        width = len(split_fields(lines[2]))
+        self.assertEqual(lines[3:], ['1,""' + ',' * (width - 2), ''])
+        self.assertEqual(lines[:2], text.split('\r\n')[:2])
+
+    def test_reset_cases_keeps_line_ending_and_missing_final_one(self) -> None:
+        got = self._rewrite({}, True, _sample_text(eol='\n'))
+        self.assertNotIn('\r', got)
+        self.assertEqual(len(got.split('\n')), 5)  # 줄 넷과 끝의 빈 조각
+        bare = self._rewrite({}, True, _sample_text().rstrip('\r\n'))
+        self.assertEqual(len(bare.split('\r\n')), 4)
+        self.assertFalse(bare.endswith('\n'))
+
+    def test_unknown_section_kept(self) -> None:
+        header = HEADER + ',<stub>,dmy_stub_ret'
+        stub = len(split_fields(HEADER)) + 1
+        got = self._rewrite({'dmy_count': 'out'}, text=_sample_text(header, {stub: 'v'}))
+        lines = got.split('\r\n')
+        self.assertEqual(split_fields(lines[2])[-2:], ['<stub>', 'dmy_stub_ret'])
+        self.assertEqual(split_fields(lines[3])[-1], 'v')
+        self.assertNotIn('dmy_stub_ret', _by_section(lines[2])['<toutput>'])
+
+    def test_unknown_section_in_the_middle_keeps_place(self) -> None:
+        got = self._rewrite({'a': 'out'}, text=_sample_text(',<input>,a,<stub>,s,<expect>,b'))
+        self.assertEqual(got.split('\r\n')[2],
+                         ',<input>,<stub>,s,<expect>,a,b,<output>,a,<toutput>,a')
+
+    def test_missing_expect_section_added(self) -> None:
+        got = self._rewrite({'b': 'out'}, text=_sample_text(',<input>,a,b'))
+        lines = got.split('\r\n')
+        self.assertEqual(lines[2], ',<input>,a,<expect>,b,<output>,b,<toutput>,b')
+        self.assertEqual([len(split_fields(row)) for row in lines[3:5]], [9, 9])
+
+    def test_missing_input_section_takes_the_case_name_column(self) -> None:
+        got = self._rewrite({'a': 'inout'}, text=_sample_text(',<expect>,a', {2: '5'}))
+        lines = got.split('\r\n')
+        self.assertEqual(lines[2], ',<input>,a,<expect>,a,<output>,a,<toutput>,a')
+        self.assertEqual(split_fields(lines[3]), ['1', CASE_NAMES[0], '', '', '5', '', '', '', ''])
+        reset = self._rewrite({'a': 'inout'}, True, _sample_text(',<expect>,a')).split('\r\n')
+        self.assertEqual(reset[3], '1,"",,,,,,,')
+
+
+class WriteCopyTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory()
+        self.export = Path(self._tmp.name) / 'export'
+        self.out = Path(self._tmp.name) / 'out'
+
+    def tearDown(self) -> None:
+        self._tmp.cleanup()
+
+    def _put(self, rel: str, data: bytes) -> Path:
+        path = self.export / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(data)
+        return path
+
+    def _written(self) -> List[str]:
+        return sorted(p.relative_to(self.out).as_posix() for p in self.out.rglob('*') if p.is_file())
+
+    def test_write_copy_only_edits_keeps_relative_path_and_cp949(self) -> None:
+        data = _sample_text().encode('cp949')
+        key = 'a/UnitTests/dmy_calc_test0.csv'
+        for project in ('a', 'b'):
+            self._put('{}/UnitTests/dmy_calc_test0.csv'.format(project), data)
+            self._put('{}/UnitTests/dmy_calc_test0.utest'.format(project), UTEST)
+        self._put('a/testInfo.export', b'<xml/>')
+        count = ct_export.write_copy(self.export, self.out, {key: {'dmy_count': 'out'}}, False)
+        self.assertEqual(count, 1)
+        self.assertEqual(self._written(), [key])
+        got = (self.out / key).read_bytes().decode('cp949')
+        self.assertIn('견본', got)
+        self.assertEqual(got.count('\n'), got.count('\r\n'))
+        self.assertEqual(_by_section(got.split('\r\n')[2])['<input>'],
+                         ['dmy_gain', 'dmy_hist[0]', 'dmy_limit.dmy_hi', 'dmy_limit.dmy_lo',
+                          'dmy_mode', 'dmy_ptr_mem[0]', 'dmy_spare', 'dmy_x'])
+        self.assertEqual((self.export / key).read_bytes(), data)  # 내보낸 폴더는 그대로
+
+    def test_unchanged_copy_is_byte_identical(self) -> None:
+        text = _sample_text()
+        files = {'p/bom.csv': text.encode('utf-8-sig'),
+                 'p/bare.csv': text.rstrip('\r\n').encode('cp949'),
+                 'p/lf.csv': _sample_text(eol='\n').encode('utf-8')}
+        for key, data in files.items():
+            self._put(key, data)
+        edits = {key: {} for key in files}
+        self.assertEqual(ct_export.write_copy(self.export, self.out, edits, False), 3)
+        for key, data in files.items():
+            self.assertEqual((self.out / key).read_bytes(), data, key)
+
+    def test_utf8_bom_is_written_back_on_change(self) -> None:
+        key = 'p/UnitTests/dmy_calc_test0.csv'
+        self._put(key, _sample_text().encode('utf-8-sig'))
+        ct_export.write_copy(self.export, self.out, {key: {'dmy_spare': ''}}, False)
+        written = (self.out / key).read_bytes()
+        self.assertTrue(written.startswith(b'\xef\xbb\xbfCT('))
+        self.assertNotIn('dmy_spare', written.decode('utf-8-sig'))
+        self.assertIn('견본', written.decode('utf-8-sig'))
+
+    def test_missing_original_raises_oserror(self) -> None:
+        with self.assertRaises(OSError):
+            ct_export.write_copy(self.export, self.out, {'p/none.csv': {'x': 'in'}}, False)
 
 
 if __name__ == '__main__':
