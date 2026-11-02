@@ -24,9 +24,9 @@ LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들�
 
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
 SECTIONS = {
-    '4': ('CT 견본: .utest 비교, 다시 가져오기', ['examples/ct_sample/probe_export.py']),
     '5': ('실제 Codebeamer 목록 확인', ['-m', 'ct_toolkit', 'io-apply', '--list', LIST]),
-    '6': ('CT 견본: 테스트별 보고서', ['examples/ct_sample/probe_report.py']),
+    '7': ('CT 견본: 보고서 .xls 읽기', ['examples/ct_sample/probe_report.py']),
+    '8': ('CT 견본: CSV만 고친 폴더 가져오기', ['examples/ct_sample/probe_import.py']),
 }
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
@@ -34,7 +34,7 @@ E_NO_LIST = '목록 경로가 비었음: todo.bat을 다시 열고 목록 파일
 W_PULL = '[WARN] git pull 실패: 이전 확인 명령으로 돈다. 네트워크와 로컬 변경을 확인하고 다시 열기'
 ERR_NAME = 'ct_todo_error.txt'
 E_CRASH = '[ERROR] 확인이 예외로 멈춤({}): 이 화면을 보내 주기. 원문은 %TEMP%\\' + ERR_NAME + '(밖으로 보내지 않기)'
-W_STDERR = '[WARN] 경고 출력이 있었음: 원문은 %TEMP%\\' + ERR_NAME + '(밖으로 보내지 않기)'
+W_STDERR = '[WARN] 경고 출력이 있었음({}): 원문은 %TEMP%\\' + ERR_NAME + '(밖으로 보내지 않기)'
 
 
 def clean_path(text: str) -> str:
@@ -57,6 +57,12 @@ def error_kind(stderr: str) -> str:
     name = lines[-1].split(':', 1)[0].strip() if lines else ''
     pattern = r'(?:[A-Za-z_]\w*\.)*[A-Z]\w*(?:Error|Exception|Interrupt|Exit|Warning)'
     return name if re.fullmatch(pattern, name) else '종류 모름'
+
+
+def warning_kinds(stderr: str) -> str:
+    """경고 원문에서 경고 이름(UserWarning 등)만 모은다."""
+    kinds = sorted(set(re.findall(r'\b([A-Z]\w*Warning)\b', stderr)))
+    return ', '.join(kinds) if kinds else '종류 모름'
 
 
 def run_child(args: List[str], cwd: str, env: dict) -> Tuple[int, str]:
@@ -93,7 +99,7 @@ def main(ask=input, run=run_child, clear_screen=clear) -> int:
     code, stderr = run([sys.executable] + args, cwd=str(ROOT), env=child_env())
     if stderr.strip():
         (Path(tempfile.gettempdir()) / ERR_NAME).write_text(stderr, encoding='utf-8')
-        print(E_CRASH.format(error_kind(stderr)) if code else W_STDERR)
+        print(E_CRASH.format(error_kind(stderr)) if code else W_STDERR.format(warning_kinds(stderr)))
     print('exit={}'.format(code))
     return code
 

@@ -20,6 +20,10 @@ _SPEC = importlib.util.spec_from_file_location('todo_run', str(_PATH))
 todo_run = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(todo_run)
 
+# 절 번호는 todo.md를 처리하면서 바뀌므로 SECTIONS에서 꼴로 고른다.
+PLAIN = next(n for n, (_, a) in todo_run.SECTIONS.items() if todo_run.LIST not in a)
+LISTED = next(n for n, (_, a) in todo_run.SECTIONS.items() if todo_run.LIST in a)
+
 
 TRACEBACK = ('Traceback (most recent call last):\n'
              '  File "C:\\Users\\secret_user\\repo\\examples\\probe.py", line 9, in <module>\n'
@@ -47,15 +51,15 @@ def _main(answers, run=None, pull='ok', tmp=None):
 
 class MainTest(unittest.TestCase):
     def test_section_runs_probe_from_repo_root(self) -> None:
-        code, screen, calls, cleared = _main(['4'], run=_Run(0))
+        code, screen, calls, cleared = _main([PLAIN], run=_Run(0))
         self.assertEqual(code, 0)
         args, cwd, env = calls[0]
-        self.assertEqual(args[1:], ['examples/ct_sample/probe_export.py'])
+        self.assertEqual(args[1:], todo_run.SECTIONS[PLAIN][1])
         self.assertTrue((todo_run.ROOT / args[1]).is_file())
         self.assertEqual(cwd, str(todo_run.ROOT))
         self.assertEqual(env['PYTHONUTF8'], '1')
         self.assertEqual(cleared, 1)
-        self.assertIn('todo.md 4절', screen)
+        self.assertIn('todo.md {}절'.format(PLAIN), screen)
         self.assertTrue(screen.rstrip().endswith('exit=0'))
 
     def test_every_section_script_exists(self) -> None:
@@ -66,7 +70,7 @@ class MainTest(unittest.TestCase):
 
     def test_list_section_passes_dropped_path_without_printing_it(self) -> None:
         dropped = '"C:\\secret_dir\\secret_list.xlsx" '
-        code, screen, calls, _ = _main(['5', dropped], run=_Run(3))
+        code, screen, calls, _ = _main([LISTED, dropped], run=_Run(3))
         self.assertEqual(code, 3)
         args, _, env = calls[0]
         self.assertEqual(args[1:], ['-m', 'ct_toolkit', 'io-apply', '--list',
@@ -84,14 +88,14 @@ class MainTest(unittest.TestCase):
         self.assertNotIn('secret', screen)
 
     def test_empty_list_path_stops(self) -> None:
-        code, screen, calls, _ = _main(['5', '  ""  '])
+        code, screen, calls, _ = _main([LISTED, '  ""  '])
         self.assertEqual(code, 2)
         self.assertEqual(calls, [])
         self.assertIn(todo_run.E_NO_LIST, screen)
 
     def test_crash_prints_kind_only_and_keeps_traceback_in_temp_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            code, screen, _, _ = _main(['4'], run=_Run(1, TRACEBACK), tmp=tmp)
+            code, screen, _, _ = _main([PLAIN], run=_Run(1, TRACEBACK), tmp=tmp)
             saved = (Path(tmp) / todo_run.ERR_NAME).read_text(encoding='utf-8')
         self.assertEqual(code, 1)
         self.assertIn(todo_run.E_CRASH.format('FileNotFoundError'), screen)
@@ -100,10 +104,10 @@ class MainTest(unittest.TestCase):
 
     def test_warning_on_success_points_to_temp_file(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
-            code, screen, _, _ = _main(['6'], run=_Run(0, 'C:\\secret\\x.py:1: UserWarning: secret\n'),
+            code, screen, _, _ = _main([PLAIN], run=_Run(0, 'C:\\secret\\x.py:1: UserWarning: secret\n'),
                                        tmp=tmp)
         self.assertEqual(code, 0)
-        self.assertIn(todo_run.W_STDERR, screen)
+        self.assertIn(todo_run.W_STDERR.format('UserWarning'), screen)
         self.assertNotIn('secret', screen)
 
     def test_error_kind_ignores_message_and_odd_last_lines(self) -> None:
@@ -115,10 +119,15 @@ class MainTest(unittest.TestCase):
                          'a.b.InvalidFileException')
         self.assertEqual(todo_run.error_kind(''), '종류 모름')
 
+    def test_warning_kinds_lists_names_only(self) -> None:
+        text = 'C:\\secret\\a.py:1: UserWarning: x\nb.py:2: DeprecationWarning: secret\n'
+        self.assertEqual(todo_run.warning_kinds(text), 'DeprecationWarning, UserWarning')
+        self.assertEqual(todo_run.warning_kinds('secret\n'), '종류 모름')
+
     def test_failed_pull_is_warned_after_clearing(self) -> None:
-        _, screen, _, _ = _main(['6'], pull='fail')
-        self.assertIn(todo_run.W_PULL, screen.split('todo.md 6절')[1])
-        _, screen, _, _ = _main(['6'])
+        _, screen, _, _ = _main([PLAIN], pull='fail')
+        self.assertIn(todo_run.W_PULL, screen.split('todo.md {}절'.format(PLAIN))[1])
+        _, screen, _, _ = _main([PLAIN])
         self.assertNotIn(todo_run.W_PULL, screen)
 
 

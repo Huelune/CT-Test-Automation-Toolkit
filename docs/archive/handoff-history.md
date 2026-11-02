@@ -84,3 +84,17 @@
 - 그때 `probe_export.py`가 견본 폴더가 없으면 traceback(저장소 경로 포함)을 찍는 것을 찾아 정해 둔
   안내로 바꿨다. `todo_run.py`는 확인 스크립트의 표준 오류를 `%TEMP%\ct_todo_error.txt`에만 쓰고
   화면에는 예외 종류만 찍는다.
+
+## 2026-11-02 todo.md 4·6절 결과
+
+- 서버 PC에서 `todo.bat` 더블클릭으로 4·6절을 돌렸다. 더블클릭, `git pull`, 절 번호, `pause`, 표준
+  오류를 `%TEMP%` 파일로 돌리기가 동작했다.
+- 4절: 지정을 바꾸면 `.utest`(Java 직렬화 바이너리)도 바뀐다. CSV는 cp949·CRLF·BOM 없음, 첫 줄
+  `CT(Controller Tester) Test Data`, 케이스 이름은 `#ID#<이름>#ID#`. `out\1`을 다시 가져오자 새 테스트
+  `dmy_calc_test1`이 생겼다. 자세한 것은 `docs/design/io-designation.md` "견본 결과 (2026-11-02)".
+  화면에 `.utest` 바이너리 줄이 그대로 찍혀 읽기 어려웠다. 4절 스크립트는 지우고, CSV만 고친 폴더를
+  만들어 가져오기를 보는 `probe_import.py`(8절)를 더했다.
+- 6절: 보고서 폴더에 `.html` 1, `.xls` 3, `.xlsx` 1. 요약 `.xlsx`(시트 1개, 21줄)에는 케이스 이름이
+  없었다. 스크립트가 `.xls`를 안 읽어서, `.xls`(글자 파일·OLE2)를 읽게 고쳐 7절로 다시 요청했다.
+  openpyxl 경고가 표준 오류로 나와 `[WARN]`이 찍혔다. 스크립트에서 경고를 끄고, 실행기는 경고 이름도
+  같이 찍게 했다.
