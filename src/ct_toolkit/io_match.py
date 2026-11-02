@@ -24,7 +24,9 @@ SKIP_REASONS = (R_MULTI, R_NO_VAR, R_CONFLICT, R_HAS_VALUES, R_TYPE)  # 화면 �
 @dataclass(frozen=True)
 class CtVar:
     name: str  # 리턴 값은 'return'
-    direction: str  # 'in' | 'out' | 'inout' | '' (지정 없음)
+    # 'in' | 'out' | 'inout' | '' (지정 없음) | 'mixed': 멤버·원소마다 든 구역이 달라 한 지정이 아님
+    # ('mixed'는 어떤 목록 지정과도 같지 않으므로 늘 바뀌는 것으로 본다)
+    direction: str
     has_values: bool = False  # 테스트 케이스에 값이 들어 있다
     supported: bool = True  # 툴킷이 이 종류의 지정을 쓸 줄 안다
 

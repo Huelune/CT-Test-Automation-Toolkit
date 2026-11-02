@@ -17,6 +17,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 from ct_toolkit import ct_export  # noqa: E402
 from ct_toolkit.ct_export import (  # noqa: E402
     E_EXPORT_EMPTY, E_EXPORT_OPEN, ExportError, decode_csv, split_fields, symbol_variable)
+from ct_toolkit.io_list import ListRow  # noqa: E402
+from ct_toolkit.io_match import R_HAS_VALUES, match  # noqa: E402
 
 # `load_tests`를 이름으로 가져오면 unittest가 테스트 불러오기 훅으로 오해하므로 모듈로 부른다.
 load = ct_export.load_tests
@@ -42,6 +44,7 @@ def _case(header: str = HEADER, values: Optional[dict] = None) -> str:
     return ','.join(fields)
 
 
+MIXED_HEADER = ',<input>,dmy_in,dmy_ok,st.cnt,st.mode,<expect>,dmy_ok,st.cnt'  # st.mode는 입력에만
 CASE_NAMES = ('"#ID#a,b#ID#"', '"#ID#견본#ID#"')
 
 
@@ -185,6 +188,39 @@ class LoadTest(unittest.TestCase):
         self.assertFalse(test.variables['p'].supported)
         self.assertEqual(test.variables['p'].direction, 'in')
         self.assertTrue(test.variables['dmy_x'].supported)
+
+    def test_struct_members_in_different_sections_are_mixed(self) -> None:
+        # 멤버 하나는 입력·기대값에, 다른 하나는 입력에만 있다: 한 방향으로 말할 수 없다
+        test = self._only(header=MIXED_HEADER)
+        self.assertEqual(test.variables['st'].direction, 'mixed')
+        self.assertEqual(test.variables['dmy_ok'].direction, 'inout')
+        self.assertEqual(test.variables['dmy_in'].direction, 'in')
+
+    def test_mixed_struct_gets_every_member_in_the_listed_sections(self) -> None:
+        test = self._only(header=MIXED_HEADER)
+        got = match([ListRow(2, 'dmy_calc', 'st', 'inout')], [test])
+        self.assertEqual((got.changes, got.skips), ({test.key: {'st': 'inout'}}, []))
+        lines = ct_export.rewrite_csv(
+            _sample_text(MIXED_HEADER), got.edits[test.key], True).split('\r\n')
+        sections = _by_section(lines[2])
+        for section in ('<input>', '<expect>', '<output>', '<toutput>'):
+            self.assertTrue({'st.cnt', 'st.mode'} <= set(sections[section]), section)
+
+    def test_mixed_struct_with_values_is_skipped_without_reset(self) -> None:
+        mode = split_fields(MIXED_HEADER).index('st.mode')
+        test = self._only(header=MIXED_HEADER, case=_case(MIXED_HEADER, {mode: '5'}))
+        self.assertTrue(test.variables['st'].has_values)
+        got = match([ListRow(2, 'dmy_calc', 'st', 'inout')], [test])
+        self.assertEqual([s.reason for s in got.skips], [R_HAS_VALUES])
+        self.assertEqual((got.applied, got.changes), ({}, {}))
+        self.assertNotIn('st', got.edits.get(test.key, {}))  # 값을 잃지 않게 지정을 그대로 둔다
+        reset = match([ListRow(2, 'dmy_calc', 'st', 'inout')], [test], True)
+        self.assertEqual(reset.changes, {test.key: {'st': 'inout'}})
+
+    def test_unlisted_mixed_variable_is_released(self) -> None:
+        test = self._only(header=MIXED_HEADER)
+        got = match([ListRow(2, 'dmy_calc', 'dmy_ok', 'inout')], [test])
+        self.assertIn('st', got.released[test.key])
 
     def test_unknown_section_symbols_are_not_variables(self) -> None:
         header = HEADER.replace(',<output>,', ',<stub>,dmy_stub_ret,<output>,', 1)

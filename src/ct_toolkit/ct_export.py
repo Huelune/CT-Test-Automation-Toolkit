@@ -116,20 +116,29 @@ def _symbol_columns(header: List[str]) -> Dict[str, List[Tuple[int, str]]]:
 
 def _variables(columns: Mapping[str, List[Tuple[int, str]]],
                cases: List[List[str]]) -> Dict[str, CtVar]:
-    """`<input>`은 입력, `<expect>`는 출력 지정이다. 값도 그 두 구역의 칸만 본다."""
-    directions: Dict[str, Set[str]] = {}
+    """`<input>`은 입력, `<expect>`는 출력 지정이다. 값도 그 두 구역의 칸만 본다.
+
+    구조체·배열 변수의 기호들이 든 구역이 서로 다르면(멤버마다 지정이 다름) 방향은 'mixed'다.
+    목록의 지정 하나가 모든 기호에 같게 들어가야 하므로 'mixed'는 어떤 지정과도 같지 않다.
+    """
+    held: Dict[str, Dict[str, Set[str]]] = {}  # 변수 -> 기호 -> 든 구역(in/out)
     cells: Dict[str, List[int]] = {}
     unsupported: Set[str] = set()
     for section, direction in ((S_INPUT, 'in'), (S_EXPECT, 'out')):
         for column, symbol in columns.get(section, []):
             name, supported = symbol_variable(symbol)
-            directions.setdefault(name, set()).add(direction)
+            held.setdefault(name, {}).setdefault(symbol, set()).add(direction)
             cells.setdefault(name, []).append(column)
             if not supported:
                 unsupported.add(name)
     variables: Dict[str, CtVar] = {}
-    for name, found in directions.items():
-        direction = 'inout' if len(found) > 1 else next(iter(found))
+    for name, symbols in held.items():
+        kinds = {frozenset(found) for found in symbols.values()}
+        if len(kinds) > 1:
+            direction = 'mixed'
+        else:
+            found = next(iter(kinds))
+            direction = 'inout' if len(found) > 1 else next(iter(found))
         has_values = any(column < len(case) and case[column].strip()
                          for case in cases for column in cells[name])
         variables[name] = CtVar(name, direction, has_values, name not in unsupported)
