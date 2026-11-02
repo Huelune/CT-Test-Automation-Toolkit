@@ -95,5 +95,110 @@ class MatchTest(unittest.TestCase):
         self.assertEqual([s.row for s in got.skips], [4, 9])
 
 
+class PointerNameTest(unittest.TestCase):
+    def test_pointer_param_finds_mem_variable(self) -> None:
+        t = _test('k', 'dmy_f', dmy_ptr_mem=CtVar('dmy_ptr_mem', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_ptr', 'in')], [t])
+        self.assertEqual(got.applied, {'k': {'dmy_ptr_mem': 'in'}})
+        self.assertEqual((got.changes, got.skips), ({}, []))
+
+    def test_exact_name_wins_over_mem(self) -> None:
+        t = _test('k', 'dmy_f', buf=CtVar('buf', 'in'), buf_mem=CtVar('buf_mem', 'out'))
+        got = match([_row(2, 'dmy_f', 'buf', 'out')], [t])
+        self.assertEqual(got.applied, {'k': {'buf': 'out'}})
+        # 찾지 않은 buf_mem은 목록에 없는 변수로 해제된다
+        self.assertEqual(got.released, {'k': ['buf_mem']})
+
+    def test_mem_name_is_only_a_fallback(self) -> None:
+        # 목록 이름이 이미 _mem으로 끝나면 그 이름 그대로 찾고, 없으면 변수 없음이다
+        t = _test('k', 'dmy_f', dmy_ptr_mem=CtVar('dmy_ptr_mem', ''))
+        got = match([_row(2, 'dmy_f', 'dmy_ptr_mem'), _row(3, 'dmy_f', 'dmy_other')], [t])
+        self.assertEqual(got.applied, {'k': {'dmy_ptr_mem': 'in'}})
+        self.assertEqual(got.skips, [Skip(3, 'dmy_f', 'dmy_other', R_NO_VAR)])
+
+    def test_pointer_and_mem_rows_conflict_on_same_variable(self) -> None:
+        # 두 줄이 같은 테스트 변수(dmy_ptr_mem)를 찾으므로 방향이 다르면 뒤 줄이 충돌이다
+        t = _test('k', 'dmy_f', dmy_ptr_mem=CtVar('dmy_ptr_mem', ''))
+        got = match([_row(2, 'dmy_f', 'dmy_ptr', 'out'), _row(3, 'dmy_f', 'dmy_ptr_mem', 'in')], [t])
+        self.assertEqual(got.applied, {'k': {'dmy_ptr_mem': 'out'}})
+        self.assertEqual(got.skips, [Skip(3, 'dmy_f', 'dmy_ptr_mem', R_CONFLICT)])
+
+
+class ChangesAndReleaseTest(unittest.TestCase):
+    def test_changes_only_differing(self) -> None:
+        t = _test('k', 'dmy_f', dmy_a=CtVar('dmy_a', 'in'), dmy_b=CtVar('dmy_b', 'inout'))
+        got = match([_row(2, 'dmy_f', 'dmy_a', 'in'), _row(3, 'dmy_f', 'dmy_b', 'out')], [t])
+        self.assertEqual(got.applied, {'k': {'dmy_a': 'in', 'dmy_b': 'out'}})
+        self.assertEqual(got.changes, {'k': {'dmy_b': 'out'}})
+        self.assertEqual((got.assigned, got.changed_vars), (2, 1))
+
+    def test_unlisted_variable_released(self) -> None:
+        t = _test('k', 'dmy_f', dmy_a=CtVar('dmy_a', 'in'), dmy_z=CtVar('dmy_z', 'out'),
+                  dmy_spare=CtVar('dmy_spare', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_a', 'in')], [t])
+        self.assertEqual(got.released, {'k': ['dmy_spare', 'dmy_z']})  # 이름 순
+        self.assertEqual(got.released_vars, 2)
+        self.assertEqual(got.edits['k']['dmy_spare'], '')
+        self.assertEqual(got.edits['k']['dmy_z'], '')
+
+    def test_unsupported_or_found_but_skipped_not_released(self) -> None:
+        t = _test('k', 'dmy_f',
+                  dmy_s=CtVar('dmy_s', 'in', supported=False),  # 쓸 줄 모른다
+                  dmy_v=CtVar('dmy_v', 'in', has_values=True),  # 값 있음으로 건너뛴다
+                  dmy_free=CtVar('dmy_free', ''),  # 지정이 없다
+                  dmy_gone=CtVar('dmy_gone', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_v', 'out')], [t])
+        self.assertEqual(got.count(R_HAS_VALUES), 1)
+        # 건너뛴 줄도 테스트를 골랐으므로 해제는 일어나고, dmy_gone만 대상이다
+        self.assertEqual(got.released, {'k': ['dmy_gone']})
+
+    def test_variable_skipped_as_unsupported_not_released(self) -> None:
+        t = _test('k', 'dmy_f', dmy_s=CtVar('dmy_s', 'in', supported=False),
+                  dmy_gone=CtVar('dmy_gone', 'out'))
+        got = match([_row(2, 'dmy_f', 'dmy_s')], [t])
+        self.assertEqual(got.count(R_TYPE), 1)
+        self.assertEqual(got.released, {'k': ['dmy_gone']})
+
+    def test_test_without_rows_not_released(self) -> None:
+        listed = _test('k1', 'dmy_f', dmy_a=CtVar('dmy_a', 'in'))
+        other = _test('k2', 'dmy_other', dmy_x=CtVar('dmy_x', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_a', 'in')], [listed, other])
+        self.assertEqual((got.released, got.edits), ({}, {}))
+        self.assertEqual(got.unlisted, ['dmy_other'])
+
+    def test_rows_that_pick_no_test_release_nothing(self) -> None:
+        # 함수 여럿으로 건너뛴 줄과 내보내지 않은 줄은 테스트를 고르지 못한다
+        a = _test('ka', 'dmy_f', 'src\\a.c', dmy_x=CtVar('dmy_x', 'in'))
+        b = _test('kb', 'dmy_f', 'src\\b.c', dmy_x=CtVar('dmy_x', 'in'))
+        c = _test('kc', 'dmy_g', 'src\\c.c', dmy_x=CtVar('dmy_x', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_y'), _row(3, 'dmy_g', 'dmy_y', file='d.c')], [a, b, c])
+        self.assertEqual(got.count(R_MULTI), 1)
+        self.assertEqual(got.not_exported, ['dmy_g'])
+        self.assertEqual(got.released, {})
+
+    def test_conflicting_list_rows_keep_the_variable(self) -> None:
+        # 목록이 충돌해 건너뛴 변수도 목록에 있는 변수라 해제하지 않는다
+        t = _test('k', 'dmy_f', dmy_x=CtVar('dmy_x', 'in'), dmy_gone=CtVar('dmy_gone', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_x', 'in'), _row(3, 'dmy_f', 'dmy_x', 'out')], [t])
+        self.assertEqual([s.reason for s in got.skips], [R_CONFLICT, R_CONFLICT])
+        self.assertEqual(got.released, {'k': ['dmy_gone']})
+
+    def test_conflict_for_unexported_function_is_not_not_exported(self) -> None:
+        got = match([_row(2, 'dmy_f', 'dmy_x', 'in'), _row(3, 'dmy_f', 'dmy_x', 'out')], [])
+        self.assertEqual((got.not_exported, got.count(R_CONFLICT)), ([], 2))
+
+    def test_released_test_without_changes_still_in_edits(self) -> None:
+        t = _test('k', 'dmy_f', dmy_a=CtVar('dmy_a', 'in'), dmy_spare=CtVar('dmy_spare', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_a', 'in')], [t])
+        self.assertEqual(got.changes, {})
+        self.assertEqual(got.edits, {'k': {'dmy_spare': ''}})
+
+    def test_edits_merge_changes_and_released(self) -> None:
+        t = _test('k', 'dmy_f', dmy_b=CtVar('dmy_b', 'inout'), dmy_spare=CtVar('dmy_spare', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_b', 'out')], [t])
+        self.assertEqual(got.edits, {'k': {'dmy_b': 'out', 'dmy_spare': ''}})
+        self.assertEqual(got.changes, {'k': {'dmy_b': 'out'}})  # edits가 changes를 바꾸지 않는다
+
+
 if __name__ == '__main__':
     unittest.main()
