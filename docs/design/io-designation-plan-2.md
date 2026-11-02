@@ -180,7 +180,9 @@ Expected: OK. (`io_apply`가 `ct_export.NotReady`를 쓰므로 이 단계에서 
 - 1·2줄과 줄 끝(원본 1줄의 끝을 따름, 마지막 줄 끝의 유무도 원본대로), 인코딩은 그대로.
 - 바뀌는 변수의 기호는 새 지정대로 넣는다: in이면 `<input>`, out이면 `<expect>`·`<output>`·`<toutput>`,
   inout이면 넷 다. 해제는 넷 다에서 뺀다. 바뀌지 않는 변수의 기호는 구역마다 원래 자리 그대로.
-- 구역 안 기호 순서는 머리글에 처음 나온 순서. 모르는 구역(`<stub>` 등)은 기호까지 그대로.
+- 구역 안 기호 순서: 남는 기호는 원래 순서와 자리 그대로. CT가 오름차순(파이썬 문자열 순서)으로 쓴 구역이면
+  새로 드는 기호를 그 순서의 자리에 넣고, 아니면 마지막 기호 뒤에 머리글에 처음 나온 순서로 붙인다. 바뀌는 것이
+  없는 구역은 그대로다. 모르는 구역(`<stub>` 등)은 기호까지 그대로.
 - 필요한 구역 표시가 없으면 `<input>`, `<expect>`, `<output>`, `<toutput>` 순서에 맞는 자리에 넣는다.
 - 케이스 줄: 새 칸마다 원래 같은 (구역, 기호) 칸의 값, 구역 표시 칸은 원래 같은 표시 칸의 값, 없던 칸은 빈칸.
   `reset_cases`면 케이스 줄을 `1,""`와 빈칸만으로 된 한 줄로 바꾼다(`""`는 첫 구역 표시 칸).
@@ -193,8 +195,10 @@ Expected: OK. (`io_apply`가 `ct_export.NotReady`를 쓰므로 이 단계에서 
     머리글이 `,<input>,dmy_gain,dmy_limit.dmy_hi,dmy_limit.dmy_lo,dmy_mode,dmy_ptr_mem[0],dmy_x,<expect>,dmy_count,
     dmy_hist[0],dmy_level,returnVar,<output>,...,<toutput>,...`(뒤 두 구역은 `<expect>`와 같음). 이것이 견본 2절에서
     사용자가 손으로 만든 지정이다.
-  - `test_in_to_out_keeps_first_appearance_order`: `{'dmy_gain': 'out'}` → `<expect>`가 `dmy_count,dmy_gain,dmy_hist[0],
-    dmy_level,returnVar`.
+  - `test_in_to_out_keeps_sorted_order`: `{'dmy_gain': 'out'}` → `<expect>`가 `dmy_count,dmy_gain,dmy_hist[0],
+    dmy_level,returnVar`(정렬된 구역이라 정렬 자리에 든다).
+  - `test_unsorted_section_gets_joiners_at_its_end`: 정렬되지 않은 구역은 새 기호가 마지막 기호 뒤에 머리글에
+    처음 나온 순서로 붙는다.
   - `test_values_follow_their_columns`: `dmy_x` 칸 `7`, 케이스 이름 칸이 바꾼 뒤에도 같은 기호·표시 아래 있고, 모든
     줄의 칸 수가 머리글과 같다.
   - `test_reset_cases_leaves_one_empty_case`: 케이스 두 줄 → `1,""`와 빈칸 한 줄.
