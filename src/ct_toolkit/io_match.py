@@ -54,6 +54,7 @@ class MatchResult:
     tests_total: int
     changes: Dict[str, Dict[str, str]] = field(default_factory=dict)  # applied 중 지금 지정과 다른 것
     released: Dict[str, List[str]] = field(default_factory=dict)  # 테스트 key -> 해제할 변수(이름 순)
+    kept: Dict[str, List[str]] = field(default_factory=dict)  # 해제할 변수인데 값이 있어 둔 것(이름 순)
 
     def count(self, reason: str) -> int:
         return sum(1 for s in self.skips if s.reason == reason)
@@ -69,6 +70,10 @@ class MatchResult:
     @property
     def released_vars(self) -> int:
         return sum(len(v) for v in self.released.values())
+
+    @property
+    def kept_vars(self) -> int:
+        return sum(len(v) for v in self.kept.values())
 
     @property
     def edits(self) -> Dict[str, Dict[str, str]]:
@@ -156,13 +161,20 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
                 changes.setdefault(test.key, {})[var.name] = r.direction
 
     released: Dict[str, List[str]] = {}
+    kept: Dict[str, List[str]] = {}
     for key, test in picked.items():
-        names = sorted(v.name for v in test.variables.values()
-                       if v.supported and v.direction and v.name not in found.get(key, ()))
-        if names:
-            released[key] = names
+        rel: List[str] = []
+        keep: List[str] = []
+        for v in test.variables.values():
+            if v.supported and v.direction and v.name not in found.get(key, ()):
+                # 값이 든 변수를 해제하면 값을 잃으므로 케이스를 지울 때만 해제한다
+                (rel if reset_cases or not v.has_values else keep).append(v.name)
+        if rel:
+            released[key] = sorted(rel)
+        if keep:
+            kept[key] = sorted(keep)
 
     listed = {r.function for r in rows}
     unlisted = sorted({t.function for t in tests if t.function not in listed})
     skips.sort(key=lambda s: s.row)
-    return MatchResult(applied, skips, sorted(not_exported), unlisted, len(tests), changes, released)
+    return MatchResult(applied, skips, sorted(not_exported), unlisted, len(tests), changes, released, kept)

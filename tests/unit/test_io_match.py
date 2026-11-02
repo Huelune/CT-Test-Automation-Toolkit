@@ -159,6 +159,29 @@ class ChangesAndReleaseTest(unittest.TestCase):
         self.assertEqual(got.count(R_TYPE), 1)
         self.assertEqual(got.released, {'k': ['dmy_gone']})
 
+    def test_unlisted_variable_with_values_is_kept_not_released(self) -> None:
+        # 값이 든 변수를 해제하면 값을 잃으므로 해제하지 않고 따로 센다
+        t = _test('k', 'dmy_f', dmy_a=CtVar('dmy_a', 'in'),
+                  dmy_v=CtVar('dmy_v', 'out', has_values=True), dmy_gone=CtVar('dmy_gone', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_a', 'in')], [t])
+        self.assertEqual(got.released, {'k': ['dmy_gone']})
+        self.assertEqual((got.kept, got.kept_vars), ({'k': ['dmy_v']}, 1))
+        self.assertEqual(got.edits, {'k': {'dmy_gone': ''}})  # kept는 사본에 쓰지 않는다
+
+    def test_reset_cases_releases_variable_with_values(self) -> None:
+        t = _test('k', 'dmy_f', dmy_a=CtVar('dmy_a', 'in'),
+                  dmy_v=CtVar('dmy_v', 'out', has_values=True))
+        got = match([_row(2, 'dmy_f', 'dmy_a', 'in')], [t], reset_cases=True)
+        self.assertEqual(got.released, {'k': ['dmy_v']})
+        self.assertEqual((got.kept, got.kept_vars), ({}, 0))
+
+    def test_only_row_without_variable_still_releases(self) -> None:
+        # 줄이 변수 없음으로 건너뛰어도 그 줄이 테스트를 골랐으므로 해제는 일어난다
+        t = _test('k', 'dmy_f', dmy_gone=CtVar('dmy_gone', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_none')], [t])
+        self.assertEqual(got.skips, [Skip(2, 'dmy_f', 'dmy_none', R_NO_VAR)])
+        self.assertEqual(got.released, {'k': ['dmy_gone']})
+
     def test_test_without_rows_not_released(self) -> None:
         listed = _test('k1', 'dmy_f', dmy_a=CtVar('dmy_a', 'in'))
         other = _test('k2', 'dmy_other', dmy_x=CtVar('dmy_x', 'in'))
