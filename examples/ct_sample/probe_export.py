@@ -86,6 +86,9 @@ def describe(folder: str, screen: list, full: list) -> None:
 
 def main() -> int:
     screen, full = ['CT 견본 요약'], []
+    if not ROOT.is_dir():
+        print('폴더 {}이(가) 없음: 4절의 내보내기 경로를 확인'.format(ROOT))
+        return 1
     screen.append('파일 수: ' + ', '.join('{} {}'.format(d, len(files(ROOT / d))) for d in '1234'))
     compare('1', '2', '지정 전후', screen, full)
     compare('1', '4', '다시 가져오기 전후', screen, full)

@@ -91,6 +91,7 @@ tests/unit/            단위 테스트 (unittest)
 docs/ai/               작업 규칙과 인수인계 (에이전트용)
 docs/design/           설계와 로드맵
 todo.md                서버 PC 실행 요청
+todo.bat               서버 PC에서 더블클릭해 todo.md 절의 확인을 돌린다 (tools/todo_run.py)
 result/                실행 결과와 로그 (커밋하지 않음)
 ```
 

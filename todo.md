@@ -2,12 +2,14 @@
 
 작성: 2026-10-29. 결과를 붙여 주면 해당 절은 지운다.
 
-명령은 서버 PC의 `cmd`에서 저장소 루트로 이동한 뒤 그대로 붙여 넣는다. `cmd`는 Win+R에 `cmd`를
-입력해 연다. 탐색기의 [터미널에서 열기]나 터미널 앱은 PowerShell로 열릴 수 있다. 명령 블록은
-`prompt $G`와 `cls`로 시작해 프롬프트의 현재 폴더 경로가 캡처에 남지 않게 한다. 서버 PC는
-PowerShell이 그룹 정책으로 막혀 있어 `cmd` 명령과 툴킷의 Python만 쓴다. 화면에는 개수, CT 플러그인
-폴더 이름(버전), 정해 둔 안내 문구만 찍는다. 고객 소스의 함수·파일 이름, 경로, 계정은 찍지 않는다
-(회사 내부 정보).
+명령은 창에 붙여 넣지 않는다. 탐색기에서 저장소 폴더의 `todo.bat`을 더블클릭하고, 묻는 절 번호를
+넣고 Enter를 누른다. `todo.bat`은 먼저 `git pull`로 최신을 받고 그 절의 확인을 돌린 뒤 "계속하려면
+아무 키나 누르십시오"에서 멈춘다. 그 화면을 캡처한다. PowerShell은 쓰지 않는다.
+
+처음 한 번은 서버 PC 클론에 `todo.bat`이 아직 없다. 평소 쓰는 방법으로 `git pull`을 한 번 받는다.
+
+화면에는 개수, CT 플러그인 폴더 이름(버전), 정해 둔 안내 문구만 찍는다. 고객 소스의 함수·파일
+이름, 경로, 계정은 찍지 않는다(회사 내부 정보).
 
 ## 4. CT 견본: `.utest` 비교, 다시 가져오기, 파일 원문 (다시)
 
@@ -33,16 +35,7 @@ PowerShell이 그룹 정책으로 막혀 있어 `cmd` 명령과 툴킷의 Python
 4. 테스트 정보 탭에서 `dmy_count`, `dmy_hist`, `dmy_spare`가 다시 입력에 들어왔는지 본다.
 5. 2와 같은 선택으로 한 번 더 내보낸다. 경로는 `C:\ctsample\out\4`.
 
-**확인 명령.** 저장소 루트에서 붙여 넣는다. 셋째 줄은 `ct.bat`처럼 `py`가 있으면 그것을, 없으면
-`python`을 고른다. 전체 출력은 `C:\ctsample\out\probe5.txt`에 남는다.
-
-```bat
-prompt $G
-cls
-set "PY=python" & where py >nul 2>nul && set "PY=py -3"
-git pull -q
-%PY% examples\ct_sample\probe_export.py
-```
+**확인.** `todo.bat`을 더블클릭하고 `4`. 전체 출력은 `C:\ctsample\out\probe5.txt`에 남는다.
 
 **확인할 것:**
 
@@ -64,17 +57,8 @@ git pull -q
 **왜:** 3절에서는 두 번 다 예제 목록을 넣어, 실제 Codebeamer 목록이 툴킷 형식에 맞는지는 아직
 모른다. 목록을 README "입력·출력 지정 목록 형식"대로 만든 뒤 돌린다. 4절과 따로 돌려도 된다. 1분.
 
-둘째 줄의 `<...>`를 실제 목록의 전체 경로로 바꿔 붙여 넣는다. 경로는 `cls` 전에 넣어 캡처에 남지
-않는다.
-
-```bat
-prompt $G
-set "CTLIST=<Codebeamer에서 내보낸 목록.xlsx 전체 경로>"
-cls
-git pull -q
-ct.bat io-apply --list "%CTLIST%"
-echo exit=%ERRORLEVEL%
-```
+**확인.** `todo.bat`을 더블클릭하고 `5`. 목록 파일을 물으면 탐색기에서 Codebeamer 목록 XLSX를 그
+창에 끌어다 놓고 Enter. 경로는 돌리기 전에 화면에서 지워져 캡처에 남지 않는다.
 
 **확인할 것:** `목록` 줄의 함수·줄 개수가 목록과 맞는지, `목록 오류` 개수, `exit=0`. `[ERROR]` 줄이
 있으면 그 줄이 이유와 할 일이다.
@@ -108,15 +92,7 @@ echo exit=%ERRORLEVEL%
 | `dmy_high` | 20 | 1 | 1 | 3 | 1 | 5 | 10 |
 | `dmy_mid` | 7 | 1 | 0 | 0 | 0 | 5 | 10 |
 
-**확인 명령.** 저장소 루트에서 붙여 넣는다. 전체 출력은 `C:\ctsample\report\probe6.txt`에 남는다.
-
-```bat
-prompt $G
-cls
-set "PY=python" & where py >nul 2>nul && set "PY=py -3"
-git pull -q
-%PY% examples\ct_sample\probe_report.py
-```
+**확인.** `todo.bat`을 더블클릭하고 `6`. 전체 출력은 `C:\ctsample\report\probe6.txt`에 남는다.
 
 **확인할 것:**
 

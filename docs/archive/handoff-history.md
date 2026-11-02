@@ -72,3 +72,15 @@
   규칙을 더했다. 찍힌 `testInfo.export`는 XML 파일 목록이었고 `UnitTests\dmy_calc_test0.utest`도
   적혀 있었다. 2절 캡처가 CSV 비교에서 끝나 `.utest` 비교가 화면 밖이었을 수 있어, 설계 문서의
   "CSV만 바뀌었다"를 고치고 4절을 Python 요약(`examples/ct_sample/probe_export.py`)으로 다시 썼다.
+
+## 2026-11-02 todo.md 요청을 더블클릭으로 바꿈
+
+- 사용자가 서버 PC에서 명령 블록을 창에 붙여 넣는 방식은 막힌다고 알렸다(PowerShell은 10-29부터
+  막혀 있었다). 저장소 루트에 `todo.bat`(ASCII, 본문 전체를 괄호 블록 하나로 두어 `git pull`이 이
+  파일을 고쳐도 안전)과 `tools/todo_run.py`(절 번호 메뉴, 목록 파일 끌어다 놓기, 고른 뒤 화면 지움,
+  `exit=` 표시)를 더했다. todo.md 4·5·6절의 명령 블록을 "`todo.bat` 더블클릭 → 절 번호"로 바꾸고
+  AGENTS.md 규칙도 고쳤다. 에이전트 PC의 `cmd`에서 입력을 흘려 넣어 4·5·6절 경로를 돌려 봤고,
+  서버 PC 탐색기 더블클릭은 아직이다.
+- 그때 `probe_export.py`가 견본 폴더가 없으면 traceback(저장소 경로 포함)을 찍는 것을 찾아 정해 둔
+  안내로 바꿨다. `todo_run.py`는 확인 스크립트의 표준 오류를 `%TEMP%\ct_todo_error.txt`에만 쓰고
+  화면에는 예외 종류만 찍는다.
