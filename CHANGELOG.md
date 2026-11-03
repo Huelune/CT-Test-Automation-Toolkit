@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- **서버 PC에서 `io-apply.bat`을 더블클릭해 입력·출력 지정을 돌립니다.** 명령을 창에 칠 수 없는
+  서버 PC를 위해, 목록 XLSX와 CT에서 내보낸 폴더를 창에 끌어다 놓고 케이스 정리를 `y`/`n`으로 고르면
+  `ct.bat io-apply --list … --export … [--reset-cases]`가 돕니다. 시작할 때 `git pull`로 최신 코드를
+  받고, 끌어다 놓은 경로는 화면에 찍지 않습니다.
+
 - **`ct.bat io-apply --list <목록.xlsx> --export <내보낸 폴더>`로 CT 테스트의 입력·출력 지정을
   목록대로 바꾼 CSV를 씁니다.** CT [테스트 내보내기] 폴더의 테스트 데이터 CSV를 읽어 목록과 맞춰 보고,
   지정이 바뀌는 테스트의 CSV 머리글을 고친 사본을 `result\io\<시각>\`에 씁니다. 내보낸 폴더는 고치지

@@ -34,9 +34,9 @@ SECTIONS = {
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
 E_NO_LIST = '목록 경로가 비었음: todo.bat을 다시 열고 목록 파일을 창에 끌어다 놓은 뒤 Enter'
-W_PULL = '[WARN] git pull 실패: 이전 확인 명령으로 돈다. 네트워크와 로컬 변경을 확인하고 다시 열기'
+W_PULL = '[WARN] git pull 실패: 이전 코드로 돈다. 네트워크와 로컬 변경을 확인하고 다시 열기'
 ERR_NAME = 'ct_todo_error.txt'
-E_CRASH = '[ERROR] 확인이 예외로 멈춤({}): 이 화면을 보내 주기. 원문은 %TEMP%\\' + ERR_NAME + '(밖으로 보내지 않기)'
+E_CRASH = '[ERROR] 예외로 멈춤({}): 이 화면을 보내 주기. 원문은 %TEMP%\\' + ERR_NAME + '(밖으로 보내지 않기)'
 W_STDERR = '[WARN] 경고 출력이 있었음({}): 원문은 %TEMP%\\' + ERR_NAME + '(밖으로 보내지 않기)'
 
 
@@ -94,8 +94,13 @@ def main(ask=input, run=run_child, clear_screen=clear) -> int:
             print(E_NO_LIST)
             return 2
         args = [path if a == LIST else a for a in args]
+    return run_toolkit('todo.md {}절: {}'.format(number, title), args, run, clear_screen)
+
+
+def run_toolkit(title: str, args: List[str], run=run_child, clear_screen=clear) -> int:
+    """화면을 지우고 제목을 찍은 뒤 툴킷 Python을 돌린다. `io_run.py`도 쓴다."""
     clear_screen()
-    print('todo.md {}절: {}'.format(number, title))
+    print(title)
     if os.environ.get('TODO_PULL') == 'fail':
         print(W_PULL)
     sys.stdout.flush()  # 확인 스크립트 출력보다 먼저 찍히게
