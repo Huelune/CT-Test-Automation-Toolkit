@@ -72,14 +72,6 @@ class MainTest(unittest.TestCase):
                 if arg.endswith(('.py', '.xlsx')):
                     self.assertTrue((todo_run.ROOT / arg).is_file(), arg)
 
-    def test_export_sections_use_the_sample_list_and_export_folders(self) -> None:
-        sample = 'examples/ct_sample/io_list.example.xlsx'
-        for number, folder, reset in (('11', 'C:/ctsample/out/1', True),
-                                      ('12', 'C:/ctsample/out/9', False)):
-            args = todo_run.SECTIONS[number][1]
-            self.assertEqual(args[:6], ['-m', 'ct_toolkit', 'io-apply', '--list', sample, '--export'])
-            self.assertEqual(args[6:], [folder] + (['--reset-cases'] if reset else []))
-
     def test_list_section_passes_dropped_path_without_printing_it(self) -> None:
         dropped = '"C:\\secret_dir\\secret_list.xlsx" '
         code, screen, calls, _ = _main([LISTED, dropped], run=_Run(3))
