@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from ct_toolkit import ct_export  # noqa: E402
 from ct_toolkit.ct_export import (  # noqa: E402
-    E_EXPORT_EMPTY, E_EXPORT_NOT_CT, E_EXPORT_OPEN, ExportError, decode_csv, split_fields,
+    E_EXPORT_EMPTY, E_EXPORT_NOT_CT, E_EXPORT_OPEN, E_EXPORT_VERTICAL, ExportError, decode_csv, split_fields,
     symbol_variable)
 from ct_toolkit.io_list import ListRow  # noqa: E402
 from ct_toolkit.io_match import R_HAS_VALUES, match  # noqa: E402
@@ -338,6 +338,23 @@ class LoadTest(unittest.TestCase):
         self.assertNotEqual(E_EXPORT_NOT_CT, E_EXPORT_EMPTY)
         self.assertEqual(E_EXPORT_NOT_CT, '내보낸 폴더의 CSV가 CT 테스트 데이터 꼴이 아님: '
                          'CT [테스트 내보내기]로 만든 폴더를 주었는지 확인')
+
+    def test_vertical_export_raises_vertical(self) -> None:
+        # CT [환경 설정] > [테스트] > [데이터 내보내기]가 [세로]인 꼴(2026-11-03 todo.md 13절): 셋째 줄은
+        # 빈 칸과 케이스, 그 아래로 구역 표시만 든 줄과 기호마다 이름·케이스 값 줄이 온다
+        lines = ['CT(Controller Tester) Test Data', 'test name:secret_fn_test0,""', ',"#ID#a#ID#"',
+                 '<input>', 'secret_in,1', '<expect>', 'returnVar,', '<output>', 'returnVar,',
+                 '<toutput>', 'returnVar,']
+        self._put('secret_prj/UnitTests/secret_fn_test0.csv', ('\r\n'.join(lines) + '\r\n').encode('cp949'))
+        with self.assertRaises(ExportError) as ctx:
+            load(self.root)
+        self.assertEqual(str(ctx.exception), E_EXPORT_VERTICAL)
+        self.assertEqual(E_EXPORT_VERTICAL, '내보낸 CSV가 세로 방향임: CT [환경 설정] > [테스트] > '
+                         '[데이터 내보내기]를 [가로]로 하고 다시 내보내기')
+        self._put('secret_prj/UnitTests/dmy_calc_test0.csv', _csv())  # 가로가 하나라도 있으면 그것을 읽는다
+        got = load(self.root)
+        self.assertEqual([t.function for t in got.tests], ['dmy_calc'])
+        self.assertEqual(got.unreadable, ['secret_prj/UnitTests/secret_fn_test0.csv'])
 
     def test_utest_source_file_extension_ignores_case(self) -> None:
         for ext in ('C', 'CPP', 'Cxx'):

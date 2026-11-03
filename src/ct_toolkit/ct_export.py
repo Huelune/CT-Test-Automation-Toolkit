@@ -21,6 +21,8 @@ E_EXPORT_EMPTY = ('내보낸 폴더에 테스트 데이터 CSV가 없음: '
                   '[테스트 내보내기]에서 유닛 테스트의 테스트 데이터를 체크했는지 확인')
 E_EXPORT_NOT_CT = ('내보낸 폴더의 CSV가 CT 테스트 데이터 꼴이 아님: '
                    'CT [테스트 내보내기]로 만든 폴더를 주었는지 확인')
+E_EXPORT_VERTICAL = ('내보낸 CSV가 세로 방향임: CT [환경 설정] > [테스트] > [데이터 내보내기]를 [가로]로 하고 '
+                     '다시 내보내기')
 E_DIRECTION ='지정 값이 in, out, inout, 빈 값(해제) 중 하나가 아님'  # 값은 내부 정보일 수 있어 넣지 않는다
 
 FIRST_LINE = 'CT(Controller Tester) Test Data'
@@ -204,11 +206,27 @@ def _read_test(csv_path: Path, key: str) -> Optional[Tuple[CtTest, bool]]:
     return test, _TEST_NAME.fullmatch(test_name) is None
 
 
+def _vertical(csv_path: Path) -> bool:
+    """CT [환경 설정] > [테스트] > [데이터 내보내기]가 [세로]일 때의 꼴인지. 구역 표시가 셋째 줄
+    머리글에 없고 그 아래 줄에 있다(2026-11-03 todo.md 13절, 매뉴얼 2025.12 preferences-test)."""
+    try:
+        lines = _LINE_END.split(decode_csv(csv_path.read_bytes())[0])
+    except (OSError, UnicodeDecodeError):
+        return False
+    if len(lines) < 4 or lines[0].strip() != FIRST_LINE:
+        return False
+
+    def marked(line: str) -> bool:
+        return any(cell.strip() in SECTIONS for cell in split_fields(line))
+    return not marked(lines[2]) and any(marked(line) for line in lines[3:])
+
+
 def load_tests(export_dir: Path) -> ExportRead:
     """내보낸 폴더 아래 `UnitTests` 폴더의 테스트 데이터 CSV를 읽는다.
 
     다른 폴더의 CSV(통합 테스트 등)는 단위 테스트가 아니라 무시한다. CT 꼴이 아닌 CSV는 `unreadable`에
     모은다. `UnitTests`의 CSV가 없으면 `E_EXPORT_EMPTY`, 있는데 하나도 못 읽으면 `E_EXPORT_NOT_CT`다.
+    못 읽은 것 가운데 세로로 내보낸 CSV가 있으면 `E_EXPORT_VERTICAL`이다(툴킷은 가로만 읽는다).
     """
     if not export_dir.is_dir():
         raise ExportError(E_EXPORT_OPEN)
@@ -233,6 +251,8 @@ def load_tests(export_dir: Path) -> ExportRead:
             if read[1]:
                 renamed.append(key)
     if not tests:
+        if any(_vertical(export_dir / key) for key in unreadable):
+            raise ExportError(E_EXPORT_VERTICAL)
         raise ExportError(E_EXPORT_NOT_CT if unreadable else E_EXPORT_EMPTY)
     return ExportRead(tests, unreadable, renamed)
 
