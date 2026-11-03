@@ -8,8 +8,8 @@
 저장소: [Huelune/CT-Test-Automation-Toolkit](https://github.com/Huelune/CT-Test-Automation-Toolkit)
 
 > 아직 초기 단계입니다. 지금은 저장소 골격, 실행 로그, 서버 PC 환경 점검, 입력·출력 지정(목록
-> 확인과 CT 테스트 데이터 CSV 고치기)만 있습니다. CSV 고치기(`--export`)는 단위 테스트까지만 마쳤고
-> 서버 PC의 CT로 확인하는 중입니다.
+> 확인과 CT 테스트 데이터 CSV 고치기)만 있습니다. CSV 고치기(`--export`)는 서버 PC의 견본 프로젝트(함수
+> 하나)로 한 바퀴 확인했고, 실제 프로젝트에는 아직 써 보지 않았습니다.
 > 앞으로 만들 것은 [로드맵](docs/design/roadmap.md)에 있습니다.
 
 ## 요구 환경
