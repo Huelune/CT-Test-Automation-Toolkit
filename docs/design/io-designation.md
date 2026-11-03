@@ -81,7 +81,7 @@ CT 안의 이름과 맞는지 미리 알 수 없다.
    케이스는 지우지 않고 둔다.
 3. [내보내기] > [테스트] > [테스트 내보내기]로 새 빈 폴더에 내보낸다. 유닛 테스트는 테스트와
    테스트 데이터 둘 다. 옛 CSV가 남은 폴더에 내보내면 그 함수의 테스트가 둘로 읽혀 "함수 여럿"이
-   된다.
+   된다. [환경 설정] > [테스트] > [데이터 내보내기]는 [가로]여야 한다(아래 "견본 결과" 13절).
 4. `ct.bat io-apply --list <목록.xlsx> --export <내보낸 폴더> --reset-cases`를 돌린다. 툴킷은
    내보낸 폴더를 읽기만 하고, 머리글을 고치고 케이스를 정리한 CSV를 `result\io\<yyyyMMdd_HHmmss>\`에
    원래 상대 경로 그대로 쓴다. 값까지 넣은 테스트에 다시 돌릴 때는 `--reset-cases`를 빼야 값이 남는다.
@@ -309,7 +309,25 @@ typedef 이름처럼 표기가 달라 맞추기 어려우므로 비교하지 않
   `dmy_mode`, `dmy_ptr_mem[0]`, `dmy_x`), 기대값 4(`dmy_count`, `dmy_hist[0]`, `dmy_level`, `returnVar`)인
   테스트가 생겼다. 예제 목록과 같다.
 - **그 테스트를 다시 내보낸 `out\9`는 툴킷이 읽지 못했다.** 12절 화면은 `E_EXPORT_NOT_CT`(UnitTests의 CSV를
-  하나도 못 읽음)였다. 까닭은 13절에서 CSV 모양으로 본다.
+  하나도 못 읽음)였다.
+
+## 견본 결과 (2026-11-03, todo.md 13절)
+
+`out\9`, `out\1`, 11절 툴킷 사본의 CSV 모양(글자는 가림)을 나란히 찍었다.
+
+- **`out\9`의 CSV는 세로 꼴이다.** 첫 줄과 둘째 줄은 가로 꼴과 같다. 셋째 줄에 구역 표시가 없고 칸은 첫 칸
+  빈칸에 케이스 수만큼(케이스 하나면 2칸, 셋이면 4칸)이다. 그 아래 줄들은 칸이 1개이거나 셋째 줄과 같은
+  수다. 줄 수가 구역 표시 4개와 기호 수의 합과 같다(사본에서 만든 테스트는 4 + 18 = 22줄, 입력 9개인 테스트는
+  4 + 21 = 25줄). 그래서 구역 표시가 한 줄씩, 기호가 이름과 케이스 값으로 한 줄씩 내려온 것으로 본다(칸 1개
+  줄이 구역 표시인지는 모양으로만 봤다).
+- 매뉴얼(2025.12 preferences-test)에 [환경 설정] > [테스트] > [데이터 내보내기]의 "내보내기 변수 출력 방향"
+  [가로](기본값)·[세로]가 있다. `out\1`과 사본은 가로였다. `out\9`를 내보낼 때 설정이 [세로]였던 것으로 보고
+  14절에서 설정을 확인한다.
+- `out\9`에는 테스트가 둘 있었다. [테스트 내보내기]의 옵션은 "유닛/통합 테스트 뷰에서 체크된 테스트만
+  내보내기"로, 선택이 아니라 체크를 따른다.
+- 툴킷은 가로 꼴만 읽는다. 읽은 CSV가 하나도 없고 못 읽은 것 가운데 구역 표시가 셋째 줄 아래에 있는 CSV가
+  있으면 `E_EXPORT_VERTICAL`(설정을 [가로]로 하고 다시 내보내라는 문구)을 낸다. 세로 꼴을 읽어 가로로 바꿔
+  쓰는 것은 실제 작업에서 [세로]를 써야 할 때 정한다.
 
 ## 견본으로 아직 정할 것
 
@@ -340,6 +358,8 @@ typedef 이름처럼 표기가 달라 맞추기 어려우므로 비교하지 않
   https://www.manula.com/manuals/codescroll/controller-tester/2025.12/ko/topic/share-test
 - 테스트 데이터 가져오기·내보내기 (2025.12):
   https://www.manula.com/manuals/codescroll/controller-tester/2025.12/ko/topic/share-testdata
+- 테스트 환경 설정, 데이터 내보내기의 변수 출력 방향 (2025.12):
+  https://www.manula.com/manuals/codescroll/controller-tester/2025.12/ko/topic/preferences-test
 - 테스트 정보 탭(전역 변수, 파라미터·리턴 입출력 제어) (2026.06):
   https://www.manula.com/manuals/codescroll/controller-tester/2026.06/ko/topic/test-info
 - CLI 프로젝트 생성·실행 (2025.12): https://www.manula.com/manuals/codescroll/controller-tester/2025.12/ko/topic/cli-project-execution
