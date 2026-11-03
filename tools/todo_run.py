@@ -24,7 +24,10 @@ LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들�
 
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
 SECTIONS = {
-    '16': ('CSV로 만든 테스트 하나만 내보낸 견본 확인',
+    '16': ('io-apply로 견본 CSV 다시 고치기',
+           ['-m', 'ct_toolkit', 'io-apply', '--list', 'examples/ct_sample/io_list.example.xlsx',
+            '--export', 'C:/ctsample/out/1', '--reset-cases']),
+    '17': ('CSV로 만든 테스트를 다시 내보낸 견본 확인',
            ['-m', 'ct_toolkit', 'io-apply', '--list', 'examples/ct_sample/io_list.example.xlsx',
             '--export', 'C:/ctsample/out/11']),
 }
