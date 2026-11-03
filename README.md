@@ -47,7 +47,10 @@ ct.bat selfcheck
 
 ## 입력·출력 지정 목록 형식
 
-`ct.bat io-apply`가 읽는 목록입니다. Codebeamer에서 내보낸 것을 이 모양으로 맞춥니다. 예제는
+`ct.bat io-apply`가 읽는 목록입니다. Codebeamer에서 내보낸 것을 이 모양으로 맞춥니다. 실제 목록을 만들 때는
+[examples/io_list_template.example.xlsx](examples/io_list_template.example.xlsx)를 복사해 씁니다. 여러 함수,
+같은 이름 static 함수, 구조체·배열·포인터·리턴을 적는 법이 지어낸 이름으로 들어 있고, `비고` 칸과 둘째 시트
+"적는 법"에 설명이 있습니다(툴킷은 첫 시트만 읽고 `ID`·`비고` 칸은 무시합니다). 견본 프로젝트용 예제는
 [examples/ct_sample/io_list.example.xlsx](examples/ct_sample/io_list.example.xlsx)입니다.
 
 - 엑셀 파일(`.xlsx`)의 첫 시트만 읽습니다.
