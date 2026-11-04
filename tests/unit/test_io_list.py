@@ -154,7 +154,7 @@ class ReadListTest(unittest.TestCase):
         # 사용자가 실제 목록을 만들 때 보는 예시다. ID·비고 칸과 둘째 시트(적는 법)가 있어도 읽혀야 한다
         path = Path(__file__).resolve().parents[2] / 'examples' / 'io_list_template.example.xlsx'
         got = read_list(path)
-        self.assertEqual((got.total, got.functions, got.errors), (13, 3, []))
+        self.assertEqual((got.total, got.functions, got.errors), (15, 3, []))
         self.assertIn(ListRow(6, 'dmy_ctrl_update', 'dmy_state', 'inout', type_name='unsigned char',
                               range_text='0~3'), got.rows)
         self.assertEqual(sorted({r.file for r in got.rows if r.function == 'dmy_clamp'}),
