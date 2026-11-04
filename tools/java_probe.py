@@ -269,7 +269,8 @@ def elements(nodes: Dict[str, Node], lst: str) -> Dict[str, Dict[str, Node]]:
 
 
 def _short(name: str) -> str:
-    return name[4:] if name.startswith('dmy_') else name
+    """화면에 찍을 변수 이름: 견본 이름은 `dmy_`를 떼고, 나머지는 show로 가린다."""
+    return name[4:] if name.startswith('dmy_') and show(name) == '"{}"'.format(name) else show(name)
 
 
 def varying(elems: Dict[str, Dict[str, Node]]) -> Tuple[List[str], int, int]:

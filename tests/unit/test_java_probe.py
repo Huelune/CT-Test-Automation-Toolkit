@@ -151,6 +151,17 @@ class JavaProbeTest(unittest.TestCase):
         args_file = next(a for a in self.commands[-1] if a.startswith('@'))[1:]
         self.assertTrue(Path(args_file).name == 'java_args.txt')
 
+    def test_non_sample_variable_names_are_masked(self) -> None:
+        nodes = java_probe.parse_dump('\n'.join(_var(0, 'dmy_c_direct', 'true', 'OUT')
+                                                + _var(1, 'secret_var', 'false', 'IN')))[3]
+        elems = java_probe.elements(nodes, '.tcs.vars.list')
+        rows, _, _ = java_probe.varying(elems)
+        moved = java_probe.changes(elems, {})
+        text = '\n'.join(rows + moved + [', '.join(map(java_probe._short, elems))])
+        self.assertIn('c_direct', text)
+        self.assertNotIn('secret', text)
+        self.assertIn('~aaaaaa_aaa', text)
+
     def test_failure_prints_only_java_names(self) -> None:
         self._run_old = self._run
         self._run = lambda args: (self._run_old(args) if '-version' in args or '--list-modules' in args
