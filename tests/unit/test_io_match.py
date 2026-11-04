@@ -14,7 +14,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from ct_toolkit.io_list import ListRow  # noqa: E402
 from ct_toolkit.io_match import (  # noqa: E402
-    R_CONFLICT, R_HAS_VALUES, R_MULTI, R_NO_VAR, R_NOT_IN_CT, R_TYPE, CtTest, CtVar, Skip, match)
+    R_CONFLICT, R_HAS_VALUES, R_MULTI, R_NO_VAR, R_NOT_IN_CT, R_TYPE, CtTest, CtVar, Skip, match, to_symbol)
 
 
 def _row(row: int, function: str, variable: str, direction: str = 'in', file: str = '') -> ListRow:
@@ -307,6 +307,33 @@ class MemberTest(unittest.TestCase):
         t = _test('k', 'dmy_f', **{n: CtVar(n, 'in') for n in ('a.b', 'a.d', 'x')})
         got = match([_row(2, 'dmy_f', 'x', 'in')], [t])
         self.assertEqual((got.released, got.released_vars), ({'k': ['a.b', 'a.d']}, 1))
+
+
+    def test_to_symbol_only_maps_a_leading_return(self) -> None:
+        self.assertEqual(to_symbol('dmy_return'), 'dmy_return')
+        self.assertEqual(to_symbol('st.last_return'), 'st.last_return')
+        self.assertEqual(to_symbol('return[0]'), 'returnVar[0]')
+
+    def test_variable_named_like_return_is_designated(self) -> None:
+        t = _test('k', 'dmy_f', dmy_return=CtVar('dmy_return', 'in'))
+        got = match([_row(2, 'dmy_f', 'dmy_return', 'out')], [t])
+        self.assertEqual((got.skips, got.released, got.symbol_changes),
+                         ([], {}, {'k': {'dmy_return': 'out'}}))
+
+    def test_conflicting_child_rows_keep_their_share_from_the_parent_row(self) -> None:
+        t = _test('k', 'dmy_f', **{n: CtVar(n, 'out') for n in ('a.b', 'a.d')})
+        got = match([_row(2, 'dmy_f', 'a', 'in'), _row(3, 'dmy_f', 'a.b', 'out'),
+                     _row(4, 'dmy_f', 'a.b', 'in')], [t])
+        self.assertEqual([(s.row, s.reason) for s in got.skips], [(3, R_CONFLICT), (4, R_CONFLICT)])
+        self.assertEqual((got.symbol_changes, got.released), ({'k': {'a.d': 'in'}}, {}))
+
+    def test_unpicked_child_row_keeps_its_share_from_the_parent_row(self) -> None:
+        syms = {n: CtVar(n, 'out') for n in ('a.b', 'a.d')}
+        a = _test('ka', 'dmy_f', 'src\\a.c', **syms)
+        b = _test('kb', 'dmy_f', 'src\\b.c', **syms)
+        got = match([_row(2, 'dmy_f', 'a', 'in', file='a.c'), _row(3, 'dmy_f', 'a.b', 'out')], [a, b])
+        self.assertEqual(got.skips, [Skip(3, 'dmy_f', 'a.b', R_MULTI)])
+        self.assertEqual((got.symbol_changes, got.released), ({'ka': {'a.d': 'in'}}, {}))
 
 
 if __name__ == '__main__':

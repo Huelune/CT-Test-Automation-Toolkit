@@ -24,7 +24,7 @@ SKIP_REASONS = (R_MULTI, R_NO_VAR, R_CONFLICT, R_HAS_VALUES, R_TYPE, R_NOT_IN_CT
 
 _LEAD = re.compile(r'[A-Za-z_]\w*')  # 맨 앞 식별자
 _ZEROS = re.compile(r'\[0*(\d+)\]')
-_RETURN = re.compile(r'return(?=$|[.\[])')
+_RETURN = re.compile(r'^return(?=$|[.\[])')
 
 
 @dataclass(frozen=True)
@@ -166,6 +166,7 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
     protected: Dict[str, Set[str]] = {}  # 테스트 key -> 목록 줄이 덮은 기호(건너뛰었어도 센다)
     named: Dict[str, Set[str]] = {}  # 함수 -> 테스트를 못 고른 줄이 이름 붙인 경로와 그 `_mem` 꼴
     # 테스트 key -> [(가장 앞선 행 번호, 줄 묶음, 해석된 경로, 덮는 기호들)]
+    blocked: Dict[str, List[str]] = {}  # 테스트 key -> 목록 충돌로 건너뛴 줄의 해석된 경로
     pending: Dict[str, List[Tuple[int, List[ListRow], str, List[str]]]] = {}
 
     def skip(r: ListRow, reason: str) -> None:
@@ -183,6 +184,8 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
         if len({g.direction for g in group}) > 1:
             for g in group:
                 skip(g, R_CONFLICT)
+            if test is not None:
+                blocked.setdefault(test.key, []).append(resolved)
             continue
         if test is None:
             if multi:
@@ -204,14 +207,17 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
                 first[path] = (group, found)
             elif first[path][0][0].direction != group[0].direction:
                 skip(group[0], R_CONFLICT)
-        owner: Dict[str, str] = {}  # 기호 -> 가장 긴 경로
-        for path, (_, found) in first.items():
-            for s in found:
-                if s not in owner or len(path) > len(owner[s]):
-                    owner[s] = path
+        # 기호 -> (가장 긴 경로, 지정하지 않는 줄의 경로인지). 건너뛴 줄의 몫은 CT의 지정 그대로 둔다
+        owner: Dict[str, Tuple[str, bool]] = {}
+        skipped_paths = blocked.get(key, []) + sorted(named.get(test.function, ()))
+        for path, is_blocked in ([(p, False) for p in first] + [(p, True) for p in skipped_paths]):
+            for s in test.symbols:
+                if covers(path, s) and (s not in owner or len(path) > len(owner[s][0])
+                                        or (len(path) == len(owner[s][0]) and is_blocked)):
+                    owner[s] = (path, is_blocked)
         for path, (group, _) in first.items():
             r = group[0]
-            share = [s for s in test.symbols if owner.get(s) == path]
+            share = [s for s in test.symbols if owner.get(s) == (path, False)]
             moves = [s for s in share if test.symbols[s].direction != r.direction]
             if any(not test.symbols[s].supported for s in share):
                 skip(r, R_TYPE)
