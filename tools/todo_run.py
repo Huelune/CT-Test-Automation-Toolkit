@@ -23,7 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들어갈 자리
 
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
-SECTIONS = {}  # 지금 돌릴 절이 없다. .utest 비교는 tools/utest_probe.py <처음> <체크한 뒤> [--layout]
+SECTIONS = {
+    '26': ('CT에 든 Java로 .utest를 읽을 수 있는지',
+           ['tools/java_probe.py', 'C:/ctsample/out/17', 'C:/ctsample/out/18']),
+}
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
 E_NO_LIST = '목록 경로가 비었음: todo.bat을 다시 열고 목록 파일을 창에 끌어다 놓은 뒤 Enter'
