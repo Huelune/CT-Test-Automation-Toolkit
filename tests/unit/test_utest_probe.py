@@ -119,11 +119,51 @@ class UtestProbeTest(unittest.TestCase):
         out = buf.getvalue()
         self.assertEqual(code, 0, out)
         self.assertNotIn('secret', out)
-        self.assertIn('이름 있음: dmy_c_direct  없음: dmy_c_callee', out)
-        self.assertIn('이름 있음: dmy_c_direct, dmy_c_unused  없음:', out)
+        self.assertIn('이름 있음: dmy_c_direct(Java 글자열)  없음: dmy_c_callee', out)
+        self.assertIn('dmy_c_unused(Java 글자열)', out)
+        self.assertIn('꼴 Java 직렬화', out)
         self.assertIn('다른 곳 ', out)
         self.assertTrue(all(len(line) <= 120 for line in out.splitlines()))
         self.assertTrue((Path(tmp.name) / utest_probe.DUMP).is_file())
+
+    def test_unwrap_finds_compressed_or_prefixed_java(self) -> None:
+        import gzip
+        self.assertEqual(utest_probe.unwrap(gzip.compress(_stream()))[0], 'gzip > Java 직렬화')
+        kind, payload = utest_probe.unwrap(b'HDR!' + _stream())
+        self.assertEqual(kind, '앞 4바이트 머리 + Java 직렬화')
+        self.assertEqual(payload, _stream())
+        self.assertEqual(utest_probe.unwrap(b'\x01\x02xyz')[0], '모름')
+
+    def test_found_as_tells_how_the_name_is_written(self) -> None:
+        self.assertEqual(utest_probe.found_as(b'\x05dmy_c_p\x07', [], 'dmy_c_p'), '그대로')
+        self.assertEqual(utest_probe.found_as(b'\x05dmy_c_ptr\x07', [], 'dmy_c_p'), '')
+        self.assertEqual(utest_probe.found_as(b'\x01dmy_c_' + bytes([ord('p') | 0x80]), [], 'dmy_c_p'), 'Kryo')
+        self.assertEqual(utest_probe.found_as('dmy_c_p'.encode('utf-16-le'), [], 'dmy_c_p'), 'UTF-16')
+
+    def test_classes_skip_domains(self) -> None:
+        data = b'\x01com.codescroll.ut.UtTest\x02mail.secret.co.kr\x03secret@corp.example.com\x04'
+        self.assertEqual(utest_probe.classes(data), ['com.codescroll.ut.UtTest'])
+
+    def test_main_unknown_format_compares_tokens_without_secret(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        before, after = Path(tmp.name) / 'secret_a', Path(tmp.name) / 'secret_b'
+        head = b'\x89UT\x01' + b'C:\\secret\\x.c' + b'\x00com.codescroll.ut.UtVar\x01'
+        for folder, body in ((before, b'dmy_c_direct\x00\x01'),
+                             (after, b'dmy_c_direct\x00\x02\x09dmy_c_callee\x00\x02')):
+            _put(folder, 'dmy_carry_test0.utest', head + body)
+        buf = io.StringIO()
+        with mock.patch.object(utest_probe.tempfile, 'gettempdir', return_value=tmp.name), \
+                contextlib.redirect_stdout(buf):
+            code = utest_probe.main([str(before), str(after)])
+        out = buf.getvalue()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('secret', out)
+        self.assertIn('꼴 모름', out)
+        self.assertIn('클래스 이름 꼴 1: com.codescroll.ut.UtVar', out)
+        self.assertIn('바이트 낱개 비교: ', out)
+        self.assertIn('@ t "dmy_c_direct"', out)
+        self.assertIn('+ t "dmy_c_callee"', out)
 
     def test_main_needs_one_utest_per_folder(self) -> None:
         tmp = tempfile.TemporaryDirectory()

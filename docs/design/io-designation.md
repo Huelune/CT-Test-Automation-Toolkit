@@ -264,7 +264,8 @@ typedef 이름처럼 표기가 달라 맞추기 어려우므로 비교하지 않
 뒤(`4`)를 내보내 비교했다.
 
 - **`.utest`도 지정과 함께 바뀐다.** 지정 전후 `.utest`는 110줄이 달랐다. `.utest`는 Java 직렬화
-  바이너리다(`com.codescroll.ut.core.common.model.UtTest` 같은 클래스 이름이 보인다). 안에 대상 소스
+  바이너리다(`com.codescroll.ut.core.common.model.UtTest` 같은 클래스 이름이 보인다. 2026-11-04 24절에서 Java 직렬화
+  머리로 시작하지 않는 것을 봤다. 꼴은 [handoff](../ai/handoff.md)). 안에 대상 소스
   파일의 절대 경로와 함수 시그니처가 들어 있다. 툴킷이 이 파일을 고쳐 쓰기는 어렵다.
 - `testInfo.export`는 지정 전후에 같았다.
 - CSV는 BOM 없음, 줄 끝 CRLF, 인코딩 cp949다(한글 케이스 이름이 cp949로 저장됐다). 첫 줄은

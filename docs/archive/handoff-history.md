@@ -256,3 +256,7 @@
   알렸다. 지정은 `.utest`에서 오므로(8절) 툴킷 CSV의 지정은 그 길로 들어가지 않는다.
 - 지어낸 소스 `examples/ct_sample/dmy_carry.example.c`(전역 변수가 출력에 닿는 길을 다섯 가지로 나눔)와 조사 도구
   `tools/utest_probe.py`(Java 직렬화 풀기, 경로에 목록 위치를 넣지 않는 잎 비교)를 더하고 todo.md 24절로 요청했다.
+- 24절 첫 화면: 처음 테스트는 입력 `dmy_c_p_mem[0]`, `dmy_pick_returnVar`, `dmy_v`, 기대값 `dmy_c_direct`, `returnVar`였다. 체크한 뒤
+  기대값에 `dmy_c_callee`, `dmy_c_p_mem[0]`, `dmy_c_ptr`, `dmy_c_unused`가 더해졌다(이름 차례). `.utest`는 2146바이트에서
+  2746바이트가 됐고, 둘 다 Java 직렬화 머리로 시작하지 않아 풀지 못했다(`exit=1`). 확인 도구에 꼴 가리기(압축 풀기, 앞 머리,
+  EMF·XML), 이름이 적힌 꼴, 클래스 이름 꼴, 바이트 낱개 비교를 더하고 24절을 CT 일 없이 다시 받는다.

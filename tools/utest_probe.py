@@ -5,6 +5,10 @@
 `.utest`에 아예 없는지, 들어 있고 표시만 다른지, 체크하면 어느 필드가 어떻게 바뀌는지 본다. 툴킷이 `.utest`를
 고쳐 쓸 수 있는지 정하려는 조사 도구다. 고쳐 쓰는 기능은 결과를 보고 따로 설계한다.
 
+먼저 꼴을 가린다(`unwrap`: Java 직렬화, gzip·zlib·zip이면 풀기, EMF 바이너리, XML, 앞 머리 + Java 직렬화). 24절 첫
+화면에서 `.utest`는 Java 직렬화 머리로 시작하지 않았다. Java 직렬화로 풀 수 없으면 바이트를 낱개(ASCII 덩어리와 그 사이
+바이트)로 나눠 비교한다(`tokens`). 이름이 어떤 꼴로 적혔는지(`found_as`)와 Java 클래스 이름 꼴(`classes`)도 찍는다.
+
 풀기는 Java Object Serialization Stream Protocol(버전 5)을 따른다. 잎(기본형 필드 값, 글자열, null, 참조, 열거
 상수, 블록 데이터)마다 `경로 = 값` 한 줄을 만든다. 경로는 클래스 단순 이름과 필드 이름을 이은 것이고 목록 위치는
 넣지 않는다. 그래야 변수가 하나 끼어도 비교가 그 자리만 다르다고 나온다.
@@ -17,11 +21,14 @@
 from __future__ import annotations
 
 import difflib
+import gzip
+import io
 import re
 import struct
 import sys
 import tempfile
 import textwrap
+import zipfile
 import zlib
 from pathlib import Path
 from typing import List, Optional, Sequence, Tuple
@@ -264,11 +271,91 @@ def parse(data: bytes) -> List[Leaf]:
     return _run(data).leaves
 
 
-def _has(data: bytes, strings: Sequence[str], name: str) -> bool:
-    """글자열 객체 안에 그 이름이 낱말로 있거나, 블록 데이터 등에 그 이름만 든 Java 글자열이 있는지.
-    바이트 뒤 경계는 보지 않는다. 글자열 다음 표시(0x70~0x7E)가 영문자라서다."""
+def unwrap(data: bytes) -> Tuple[str, bytes]:
+    """(꼴 이름, 풀 내용). 압축이면 풀고, 앞에 머리가 붙은 Java 직렬화면 그 뒤를 준다. 2026-11-04 24절 첫 화면에서
+    `.utest`가 Java 직렬화 머리로 시작하지 않아 더했다."""
+    if data[:4] == MAGIC:
+        return 'Java 직렬화', data
+    inner, kind = None, ''
+    try:
+        if data[:2] == b'\x1f\x8b':
+            inner, kind = gzip.decompress(data), 'gzip'
+        elif data[:1] == b'\x78' and data[1:2] in (b'\x01', b'\x5e', b'\x9c', b'\xda'):
+            inner, kind = zlib.decompress(data), 'zlib'
+        elif data[:4] == b'PK\x03\x04':
+            with zipfile.ZipFile(io.BytesIO(data)) as archive:
+                names = archive.namelist()
+                inner, kind = archive.read(names[0]), 'zip 항목 {}개'.format(len(names))
+    except (OSError, EOFError, zlib.error, zipfile.BadZipFile, IndexError):
+        return '압축 머리지만 못 풂', data
+    if inner is not None:
+        sub, payload = unwrap(inner)
+        return '{} > {}'.format(kind, sub), payload
+    if data[:4] == b'\x89emf':
+        return 'EMF 바이너리', data
+    if data.lstrip(b'\xef\xbb\xbf \t\r\n')[:1] == b'<':
+        return 'XML', data
+    at = data.find(MAGIC)
+    if at > 0:
+        return '앞 {}바이트 머리 + Java 직렬화'.format(at), data[at:]
+    return '모름', data
+
+
+_KINDS = ('Java 글자열', '그대로', 'Kryo', 'UTF-16')
+
+
+def found_as(data: bytes, strings: Sequence[str], name: str) -> str:
+    """이름이 적힌 꼴(_KINDS 가운데 하나). 없으면 ''.
+
+    Java 글자열은 2바이트 길이 + 바이트, 그대로는 앞뒤가 영숫자가 아닌 ASCII, Kryo는 마지막 글자에 0x80을 더한 ASCII,
+    UTF-16은 little-endian이다."""
+    raw = name.encode('ascii')
     word = re.compile(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])')
-    return any(word.search(s) for s in strings) or struct.pack('>H', len(name)) + name.encode('ascii') in data
+    if any(word.search(s) for s in strings) or struct.pack('>H', len(raw)) + raw in data:
+        return _KINDS[0]
+    if re.search(rb'(?<![A-Za-z0-9_])' + re.escape(raw) + rb'(?![A-Za-z0-9_])', data):
+        return _KINDS[1]
+    if re.search(rb'(?<![A-Za-z0-9_])' + re.escape(raw[:-1] + bytes([raw[-1] | 0x80])), data):
+        return _KINDS[2]
+    if name.encode('utf-16-le') in data:
+        return _KINDS[3]
+    return ''
+
+
+# Java 클래스 이름 꼴: 흔한 뿌리 + 소문자 꾸러미 + 대문자로 시작하는 이름. 끝이 소문자인 도메인·메일 주소는 걸리지 않는다.
+CLASS = r'(?:java|javax|com|org|net|sun|jdk)(?:\.[a-z][a-z0-9_]*)+\.[A-Z][\w$]*'
+
+
+def classes(data: bytes) -> List[str]:
+    """바이트 안의 Java 클래스 이름 꼴(CLASS), 처음 나온 차례로 겹치지 않게."""
+    seen: List[str] = []
+    for m in re.finditer(CLASS.encode('ascii'), data):
+        text = m.group().decode('ascii')
+        if text not in seen:
+            seen.append(text)
+    return seen
+
+
+def tokens(data: bytes) -> List[str]:
+    """꼴을 모를 때 비교할 낱개: 4자 이상 ASCII 덩어리는 `t <글>`(가림), 그 사이 바이트는 `x <16진>`(12바이트 넘으면
+    길이와 CRC)."""
+    out: List[str] = []
+    pos = 0
+
+    def binary(chunk: bytes) -> str:
+        if len(chunk) <= 12:
+            return 'x ' + ' '.join('{:02x}'.format(b) for b in chunk)
+        return 'x {}바이트 crc {:08x}'.format(len(chunk), zlib.crc32(chunk))
+
+    for m in re.finditer(rb'[\x20-\x7e]{4,}', data):
+        if m.start() > pos:
+            out.append(binary(data[pos:m.start()]))
+        text = m.group().decode('ascii')
+        out.append('t ' + (text if re.fullmatch(CLASS, text) else show(text)))
+        pos = m.end()
+    if pos < len(data):
+        out.append(binary(data[pos:]))
+    return out
 
 
 def _short(line: str, width: int) -> str:
@@ -277,15 +364,18 @@ def _short(line: str, width: int) -> str:
 
 def diff_lines(before: List[Leaf], after: List[Leaf]) -> Tuple[str, List[str]]:
     """(요약 한 줄, 다른 곳의 `- 경로 = 값`/`+ 경로 = 값` 줄 전부)."""
-    a = ['{} = {}'.format(p, v) for p, v, _ in before]
-    b = ['{} = {}'.format(p, v) for p, v, _ in after]
+    return diff_seq(['{} = {}'.format(p, v) for p, v, _ in before], ['{} = {}'.format(p, v) for p, v, _ in after])
+
+
+def diff_seq(a: List[str], b: List[str]) -> Tuple[str, List[str]]:
+    """두 줄 목록의 (요약, 다른 줄). 다른 곳마다 바로 앞의 같은 줄을 `@ …`로 붙인다(어느 이름 옆인지 보려고)."""
     counts = {'insert': 0, 'delete': 0, 'replace': 0}
     lines: List[str] = []
     for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
         if tag == 'equal':
             continue
         counts[tag] += 1
-        lines += ['- ' + x for x in a[i1:i2]] + ['+ ' + x for x in b[j1:j2]]
+        lines += (['@ ' + a[i1 - 1]] if i1 else []) + ['- ' + x for x in a[i1:i2]] + ['+ ' + x for x in b[j1:j2]]
     summary = '다른 곳 {}군데(더해짐 {}, 빠짐 {}, 바뀜 {}), 다른 줄 {}'.format(
         sum(counts.values()), counts['insert'], counts['delete'], counts['replace'], len(lines))
     return summary, lines
@@ -302,6 +392,7 @@ def main(argv: Sequence[str]) -> int:
         print(E_ARGS)
         return 1
     parsed: List[Optional[List[Leaf]]] = []
+    payloads: List[bytes] = []
     dump: List[str] = []
     for label, folder in (('처음', Path(argv[0])), ('체크한 뒤', Path(argv[1]))):
         utests = _utests(folder)
@@ -312,37 +403,52 @@ def main(argv: Sequence[str]) -> int:
         for line in show_lines(folder, PREFIX):
             print('  ' + line)
         data = utests[0].read_bytes()
+        kind, payload = unwrap(data)
+        payloads.append(payload)
+        print('  .utest {}바이트, 앞 8바이트 {}, 꼴 {}, 푼 내용 {}바이트'.format(
+            len(data), ' '.join('{:02x}'.format(b) for b in data[:8]), kind, len(payload)))
         failed: Optional[UtestError] = None
-        try:
-            reader = _run(data)
-        except UtestError as exc:
-            failed, reader = exc, exc.reader
-        have = [n for n in NAMES if _has(data, reader.strings, n)]
-        text = '  .utest {}바이트, 이름 있음: {}  없음: {}'.format(
-            len(data), ', '.join(have) or '-', ', '.join(n for n in NAMES if n not in have) or '-')
-        for line in textwrap.wrap(text, WIDTH, subsequent_indent='    '):
+        reader: Optional[_Reader] = None
+        if payload[:4] == MAGIC:
+            try:
+                reader = _run(payload)
+            except UtestError as exc:
+                failed, reader = exc, exc.reader
+        strings = reader.strings if reader else []
+        ways = {n: found_as(payload, strings, n) for n in NAMES}
+        text = '  이름 있음: {}  없음: {}'.format(
+            ', '.join('{}({})'.format(n, w) for n, w in ways.items() if w) or '-',
+            ', '.join(n for n, w in ways.items() if not w) or '-')
+        names = classes(payload)
+        for line in textwrap.wrap(text, WIDTH, subsequent_indent='    ', break_on_hyphens=False)[:2]:
             print(line)
+        print('  클래스 이름 꼴 {}: {}'.format(len(names), ', '.join(names[:3]) or '-')[:WIDTH + 2])
         if failed is not None:
             print('  [ERROR] .utest 풀기 실패: {} ({}바이트 위치, 잎 {}까지 읽음)'.format(
                 failed.kind, failed.at, len(reader.leaves)))
-        else:
+        elif reader is not None:
             print('  풀기: 잎 {}'.format(len(reader.leaves)))
-        dump += ['## {}'.format(label)] + ['{:8d} {} = {}'.format(at, p, v) for p, v, at in reader.leaves]
-        parsed.append(None if failed else reader.leaves)
+        if reader is not None:
+            dump += ['## {} 잎'.format(label)] + ['{:8d} {} = {}'.format(at, p, v) for p, v, at in reader.leaves]
+        dump += ['## {} 클래스 이름 꼴'.format(label)] + names
+        parsed.append(None if failed or reader is None else reader.leaves)
     if parsed[0] is not None and parsed[1] is not None:
         summary, lines = diff_lines(parsed[0], parsed[1])
-        print(summary)
-        for line in lines[:MAX_DIFF]:
-            print('  ' + _short(line, WIDTH))
-        if len(lines) > MAX_DIFF:
-            print('  … 나머지 {}줄은 파일에'.format(len(lines) - MAX_DIFF))
-        dump += ['## 비교', summary] + lines
+    else:  # Java 직렬화로 못 풀면 바이트 낱개로 비교한다
+        summary, lines = diff_seq(tokens(payloads[0]), tokens(payloads[1]))
+        summary = '바이트 낱개 비교: ' + summary
+    print(summary)
+    for line in lines[:MAX_DIFF]:
+        print('  ' + _short(line, WIDTH))
+    if len(lines) > MAX_DIFF:
+        print('  … 나머지 {}줄은 파일에'.format(len(lines) - MAX_DIFF))
+    dump += ['## 비교', summary] + lines
     try:
         (Path(tempfile.gettempdir()) / DUMP).write_text('\n'.join(dump) + '\n', encoding='utf-8')
         print('전체 잎과 비교: %TEMP%\\{}(밖으로 보내지 않기)'.format(DUMP))
     except OSError:
         print('[WARN] 전체 잎 파일을 쓰지 못함: 임시 폴더 권한 확인')
-    return 0 if all(p is not None for p in parsed) else 1
+    return 0
 
 
 if __name__ == '__main__':
