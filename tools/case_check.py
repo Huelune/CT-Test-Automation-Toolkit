@@ -1,9 +1,9 @@
 """원소·멤버 지정 견본 확인 도구 (todo.md 22절). `case_check.py <견본 폴더> [<변형 폴더>]`.
 
 견본 폴더(CT가 dmy_calc·dmy_pick 테스트를 내보낸 것)의 머리글을 찍고, 모든 경우를 한 번에 본다.
-`examples/ct_sample/io_cases.example.xlsx`의 줄마다 `기대` 칸과 툴킷의 판정을 맞춰 본다. 사본 CSV를 견본 폴더의
-복사본에 덮어 다시 읽어 돌렸을 때 바뀔 것이 없는지(README 8단계의 확인), `해제 기대` 시트의 기호가 사본에서
-빠졌는지도 본다. 목록 한 장으로 만들 수 없는 함수 여럿·값 있음·타입 제외는 내보낸 dmy_calc CSV를 고친 사본으로
+`examples/ct_sample/io_cases.example.xlsx`의 줄마다 `기대` 칸과 툴킷의 판정을 맞춰 본다. 실제 흐름처럼 케이스
+정리(`io-apply.bat`의 `y`)로 판정해 사본을 만들고, 그 사본을 견본 폴더의 복사본에 덮어 케이스 정리 없이(`n`) 다시
+돌렸을 때 바뀔 것이 없는지(README 8단계의 확인), `해제 기대` 시트의 기호가 사본에서 빠졌는지도 본다. 목록 한 장으로 만들 수 없는 함수 여럿·값 있음·타입 제외는 내보낸 dmy_calc CSV를 고친 사본으로
 따로 본다. 이 확인의 파일은 임시 폴더에만 쓴다.
 
 변형 폴더를 주었는데 아직 없으면 CT가 기호 칸을 더하거나 뺀 CSV를 받는지 볼 변형을 `result\\probe\\<시각>\\`에
@@ -73,7 +73,8 @@ def check_list(export_dir: Path, rows: List[ListRow], expected: Dict[int, str],
     keys: Dict[str, List[str]] = {}
     for t in tests:
         keys.setdefault(t.function, []).append(t.key)
-    result = match(rows, tests)
+    # CT가 막 만든 테스트에는 자동 생성 케이스 값이 있다. 실제 흐름처럼 케이스 정리(y)로 고치고 다시 돌림은 n으로 본다
+    result = match(rows, tests, True)
     right, detail, wrong = 0, [], 0
     for r in rows:
         want, got = expected.get(r.row, ''), row_result(r, result, keys)
@@ -89,7 +90,7 @@ def check_list(export_dir: Path, rows: List[ListRow], expected: Dict[int, str],
 
     again_dir = work / 'again'  # 사용자가 사본으로 테스트를 다시 만들고 다시 내보낸 것과 같은 꼴
     shutil.copytree(str(export_dir), str(again_dir))
-    write_copy(export_dir, again_dir, result.edits, False)
+    write_copy(export_dir, again_dir, result.edits, True)
     again = load_tests(again_dir).tests
     left = len(match(rows, again).edits)
     lines.append('다시 돌림: 바뀔 테스트 {}{}'.format(left, '' if left == 0 else ' (틀림)'))

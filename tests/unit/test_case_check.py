@@ -21,7 +21,8 @@ sys.path.insert(0, str(ROOT / 'src'))
 sys.path.insert(0, str(ROOT / 'tools'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # test_ct_export의 견본 만들기를 쓴다
 import case_check  # noqa: E402
-from test_ct_export import UTEST, _csv  # noqa: E402
+from ct_toolkit.ct_export import split_fields  # noqa: E402
+from test_ct_export import UTEST, _case, _csv  # noqa: E402
 from test_member_probe import PICK_HEADER  # noqa: E402
 
 HAS_OPENPYXL = importlib.util.find_spec('openpyxl') is not None
@@ -66,6 +67,22 @@ class CaseCheckTest(unittest.TestCase):
         self.assertIn('추가 경우 4: 맞음 4, 틀림 0', lines)
         self.assertNotIn('틀림  ', screen)
         self.assertNotIn('변형', screen)  # 변형 폴더를 주지 않았다
+
+    def test_values_in_ct_made_cases_do_not_block_rows(self) -> None:
+        # 22절: CT가 막 만든 dmy_pick 테스트의 자동 생성 케이스에 값이 있었다(행 16·17이 값 있음으로 틀림)
+        unit = self.export / 'ctsample' / 'UnitTests'
+        self._export()
+        fields = split_fields(PICK_HEADER)
+        values = {i: '5' for i, f in enumerate(fields) if f.startswith('dmy_recs[0]')}
+        (unit / 'dmy_pick_test0.csv').write_bytes(
+            _csv(name='dmy_pick_test0', header=PICK_HEADER, case=_case(PICK_HEADER, values)))
+        code, screen = self._run([str(self.export)])
+        lines = screen.splitlines()
+        self.assertEqual(code, 0, screen)
+        self.assertIn('경우 19: 맞음 16, 틀림 0, 참고 3', lines)
+        self.assertIn('참고  행 16 지정', lines)
+        self.assertIn('참고  행 17 지정', lines)
+        self.assertIn('다시 돌림: 바뀔 테스트 0', lines)
 
     def test_missing_variant_folder_makes_variants(self) -> None:
         self._export()
