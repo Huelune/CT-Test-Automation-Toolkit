@@ -51,11 +51,14 @@ def _read(path: Path) -> Optional[Tuple[str, str]]:
         return None
 
 
-def show_lines(export_dir: Path) -> List[str]:
-    """UnitTests CSV마다 `<테스트 이름>  <input> a, b  <expect> c` 한 줄. 118열을 넘으면 이어 쓴다."""
+def show_lines(export_dir: Path, prefix: str = '') -> List[str]:
+    """UnitTests CSV마다 `<테스트 이름>  <input> a, b  <expect> c` 한 줄. 118열을 넘으면 이어 쓴다.
+    `prefix`를 주면 파일 이름이 그것으로 시작하는 CSV만 본다."""
     out: List[str] = []
     unreadable = 0
     for path in _csvs(export_dir):
+        if not path.stem.startswith(prefix):
+            continue
         read = _read(path)
         lines = read[0].splitlines() if read else []
         if len(lines) < 3 or lines[0].strip() != FIRST_LINE or not lines[1].startswith(NAME_PREFIX):
