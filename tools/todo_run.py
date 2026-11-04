@@ -27,6 +27,7 @@ SECTIONS = {
     '19': ('원소·멤버 견본 머리글 보기와 변형 CSV 만들기',
            ['tools/member_probe.py', 'C:/ctsample/out/12', '--make']),
     '20': ('변형 CSV로 만든 테스트 머리글 보기', ['tools/member_probe.py', 'C:/ctsample/out/13']),
+    '21': ('원소·멤버 지정 모든 경우 확인', ['tools/case_check.py', 'C:/ctsample/out/12']),
 }
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
