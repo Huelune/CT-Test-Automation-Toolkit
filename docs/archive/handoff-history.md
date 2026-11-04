@@ -276,3 +276,7 @@
 - 26절 두 번째 화면: jar 633개, FST 2.45 jar, CT 모델 폴더 번들(`backup/init` 사본도), Java 21.0.4(컴파일러 없음), ECJ는 옛 JSP
   엔진 jar뿐, "ECJ로 컴파일 실패". 사용자 허락을 받아 에이전트 PC에 Temurin JDK 21을 받아 `UtestDump`를 Java 11 바이트코드로
   컴파일해 커밋했다. 가짜 FST jar와 한글 임시 폴더 경로로 조사 도구를 끝까지 돌려 봤다. `backup` 폴더는 빼고 26절을 다시 받는다.
+- 26절 세 번째 화면: 미리 컴파일한 클래스로 CT의 FST(`createDefaultConfiguration`)가 두 `.utest`를 읽었다. 뿌리 `UtTest`, 노드
+  598 → 884. 전역 변수는 `.testCodeStructure.globalVarList.utVarList`에 이름 차례(처음 `dmy_c_direct`, `dmy_c_p` → 뒤 `dmy_c_callee`,
+  `dmy_c_direct`, `dmy_c_p`, `dmy_c_ptr`, `dmy_c_unused`). 위치로 비교해 원소가 밀린 차이만 보였다(`isDef`, `isUse`, `typeCode`,
+  자식·분할 목록 크기). 26절을 지우고, 변수를 이름으로 짝지어 비교하는 27절을 더했다.

@@ -41,29 +41,38 @@ def _nested(entries: dict) -> bytes:
     return buf.getvalue()
 
 
+VAR = 'com.codescroll.ut.core.common.model.UtVar'
+
+
+def _var(i: int, name: str, is_def: str, io: str, child_io: str = '') -> list:
+    base = '.tcs.vars.list[{}]'.format(i)
+    lines = ['N\t{}\t{}\tobject'.format(base, VAR), 'N\t{}.shortName\tString\t{}'.format(base, name),
+             'N\t{}.isDef\tBoolean\t{}'.format(base, is_def), 'N\t{}.io\tenum com.codescroll.Io\t{}'.format(base, io),
+             'N\t{}.owner\tref\t{}'.format(base, base),
+             'N\t{}.children\tjava.util.ArrayList\tsize {}'.format(base, 1 if child_io else 0)]
+    if child_io:
+        lines += ['N\t{}.children[0]\t{}\tobject'.format(base, VAR),
+                  'N\t{}.children[0].shortName\tString\t{}_mem[0]'.format(base, name),
+                  'N\t{}.children[0].io\tenum com.codescroll.Io\t{}'.format(base, child_io)]
+    return lines
+
+
 BEFORE = '\n'.join([
     'TRY\tcreateDefaultConfiguration\tjava.io.IOException < secret C:\\Users\\secret_acct',
     'OK\torg.nustaq.serialization.FSTConfiguration\tcreateUnsafeBinaryConfiguration',
     'N\t\tcom.codescroll.ut.core.common.model.UtTest\tobject',
     'N\t.path\tString\tC:\\secret_dir\\dmy_carry.c',
-    'N\t.globals\tjava.util.ArrayList\tsize 1',
-    'N\t.globals[0]\tcom.codescroll.ut.core.common.model.UtVar\tobject',
-    'N\t.globals[0].name\tString\tdmy_c_direct',
-    'N\t.globals[0].io\tenum com.codescroll.Io\tOUT',
-    'N\t.hash\tString\tSECRET_dmy_carry736104709',
-])
+    'N\t.tcs.vars.list\tjava.util.ArrayList\tsize 2']
+    + _var(0, 'dmy_c_direct', 'true', 'OUT') + _var(1, 'dmy_c_p', 'false', 'NONE', 'IN')
+    + ['N\t.hash\tString\tSECRET_dmy_carry736104709'])
 AFTER = '\n'.join([
     'OK\torg.nustaq.serialization.FSTConfiguration\tcreateUnsafeBinaryConfiguration',
     'N\t\tcom.codescroll.ut.core.common.model.UtTest\tobject',
     'N\t.path\tString\tC:\\secret_dir\\dmy_carry.c',
-    'N\t.globals\tjava.util.ArrayList\tsize 2',
-    'N\t.globals[0]\tcom.codescroll.ut.core.common.model.UtVar\tobject',
-    'N\t.globals[0].name\tString\tdmy_c_callee',
-    'N\t.globals[0].io\tenum com.codescroll.Io\tOUT',
-    'N\t.globals[1]\tcom.codescroll.ut.core.common.model.UtVar\tobject',
-    'N\t.globals[1].name\tString\tdmy_c_direct',
-    'N\t.hash\tString\tSECRET_dmy_carry1411251611',
-])
+    'N\t.tcs.vars.list\tjava.util.ArrayList\tsize 3']
+    + _var(0, 'dmy_c_callee', 'false', 'OUT') + _var(1, 'dmy_c_direct', 'true', 'OUT')
+    + _var(2, 'dmy_c_p', 'false', 'NONE', 'OUT')
+    + ['N\t.hash\tString\tSECRET_dmy_carry1411251611'])
 
 
 class JavaProbeTest(unittest.TestCase):
@@ -123,14 +132,22 @@ class JavaProbeTest(unittest.TestCase):
         code, out = self._main()
         self.assertEqual(code, 0, out)
         self.assertNotIn('secret', out.lower())
-        self.assertIn('Java: jre/bin/java.exe | openjdk version "17.0.9" 2023-10-17 | 컴파일러 모듈 있음', out)
-        self.assertIn('읽는 방법: 미리 컴파일한 클래스', out)
         self.assertEqual(self.commands[-1][-2], java_probe.MAIN)
-        self.assertIn('처음 읽기: org.nustaq.serialization createUnsafeBinaryConfiguration로 읽음, 노드 7개', out)
-        self.assertIn('dmy_c_direct: 처음 .globals[0].name  뒤 .globals[1].name', out)
-        self.assertIn('.globals (ArrayList): size 1 → size 2', out)
-        self.assertIn('.globals[0].name: "dmy_c_direct" → "dmy_c_callee"', out)
-        self.assertTrue(all(len(line) <= 120 for line in out.splitlines()))
+        lines = out.splitlines()
+        self.assertEqual(lines[0], 'openjdk version "17.0.9" 2023-10-17 | 미리 컴파일한 클래스, '
+                                   'createUnsafeBinaryConfiguration로 둘 다 읽음, 뿌리 UtTest, 노드 19 → 25')
+        self.assertIn('전역 변수 목록 .tcs.vars.list(UtVar): 처음 c_direct, c_p → 뒤 c_callee, c_direct, c_p', out)
+        self.assertIn('뒤의 변수마다 다른 필드 3(목록 안 필드 2, 모두 같은 필드 0는 안 찍음):', out)
+        self.assertIn('  .isDef: c_callee=false  c_direct=true  c_p=false', out)
+        self.assertIn('  .io: c_callee=OUT  c_direct=OUT  c_p=NONE', out)
+        self.assertIn('  .children: c_callee=size 0  c_direct=size 0  c_p=size 1', out)
+        self.assertIn('같은 변수의 처음 → 뒤 1곳:', out)
+        self.assertIn('  c_direct: 같음', out)
+        self.assertIn('  c_p.children[0].io: IN → OUT', out)
+        self.assertIn('목록 밖에서 바뀐 곳 1:', out)
+        self.assertIn('  .hash: ~AAAAAA_dmy_carry736104709 → ~AAAAAA_dmy_carry1411251611', out)
+        self.assertNotIn('CT 설치:', out)  # 둘 다 읽으면 환경 줄은 안 찍는다
+        self.assertTrue(all(len(line) <= 120 for line in lines))
         args_file = next(a for a in self.commands[-1] if a.startswith('@'))[1:]
         self.assertTrue(Path(args_file).name == 'java_args.txt')
 
@@ -148,7 +165,7 @@ class JavaProbeTest(unittest.TestCase):
         missing = Path(self.root / 'none.class')
         with mock.patch.object(java_probe, 'COMPILED', missing):
             code, out = self._main()
-            self.assertIn('읽는 방법: 소스 바로 실행', out)
+            self.assertIn('| 소스 바로 실행, ', out)
             self._run_old = self._run
             self._run = lambda args: ((0, 'java.base@17\n', '') if '--list-modules' in args else self._run_old(args))
             code, out = self._main()

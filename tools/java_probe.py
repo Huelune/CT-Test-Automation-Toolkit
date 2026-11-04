@@ -247,24 +247,73 @@ def value_text(node: Node) -> str:
     return kind.rsplit('.', 1)[-1] if value == 'object' else value
 
 
-def compare(a: Dict[str, Node], b: Dict[str, Node]) -> Tuple[List[str], List[str], List[str]]:
-    """(이름 위치 줄, 크기가 바뀐 모음 줄, 같은 경로에서 값이 바뀐 줄)."""
-    where: List[str] = []
-    for name in NAMES:
-        pa = next((p for p, (k, v) in a.items() if k == 'String' and v == name), '-')
-        pb = next((p for p, (k, v) in b.items() if k == 'String' and v == name), '-')
-        if pa != '-' or pb != '-':
-            where.append('{}: 처음 {}  뒤 {}'.format(name, pa, pb))
-    sizes, changed = [], []
-    for path, (kind, value) in a.items():
-        if path not in b:
+def var_list(nodes: Dict[str, Node]) -> Optional[str]:
+    """견본 변수 이름이 `…[i].shortName`으로 든 목록의 경로(26절: `.testCodeStructure.globalVarList.utVarList`)."""
+    for path, (kind, value) in nodes.items():
+        if kind == 'String' and value in NAMES and path.endswith('].shortName'):
+            return path[:path.rindex('[')]
+    return None
+
+
+def elements(nodes: Dict[str, Node], lst: str) -> Dict[str, Dict[str, Node]]:
+    """목록 원소마다 shortName -> (원소 기준 상대 경로 -> 노드), 목록 차례로. 26절에서 경로로 비교하니 변수가 끼면
+    뒤 원소가 밀려 모두 바뀐 것으로 나와, 이름으로 짝짓는다."""
+    out: Dict[str, Dict[str, Node]] = {}
+    i = 0
+    while '{}[{}]'.format(lst, i) in nodes:
+        base = '{}[{}]'.format(lst, i)
+        rel = {p[len(base):]: v for p, v in nodes.items() if p.startswith(base + '.')}
+        out[rel.get('.shortName', ('', '#{}'.format(i)))[1]] = rel
+        i += 1
+    return out
+
+
+def _short(name: str) -> str:
+    return name[4:] if name.startswith('dmy_') else name
+
+
+def varying(elems: Dict[str, Dict[str, Node]]) -> Tuple[List[str], int, int]:
+    """(변수마다 값이 다른 필드 줄, 목록 안이라 줄로 안 찍은 필드 수, 모두 같은 필드 수). 참조와 자기 이름인 필드는 뺀다."""
+    keys: List[str] = []
+    for rel in elems.values():
+        keys += [k for k, (kind, _) in rel.items() if kind != 'ref' and k not in keys]
+    lines: List[str] = []
+    hidden = same = 0
+    for key in keys:
+        values = {name: value_text(rel[key]) if key in rel else '-' for name, rel in elems.items()}
+        if len(set(values.values())) == 1:
+            same += 1
+        elif all(name in v for name, v in values.items() if v != '-'):
+            continue  # shortName, fullName처럼 변수 이름 그 자체
+        elif '[' in key:
+            hidden += 1  # 포인터의 자식 변수, 분할 목록의 원소
+        else:
+            lines.append('{}: {}'.format(key, '  '.join('{}={}'.format(_short(n), v) for n, v in values.items())))
+    return lines, hidden, same
+
+
+def changes(before: Dict[str, Dict[str, Node]], after: Dict[str, Dict[str, Node]]) -> List[str]:
+    """처음에 있던 변수마다 처음 → 뒤에서 바뀐 필드. 참조는 뺀다."""
+    out: List[str] = []
+    for name, a in before.items():
+        b = after.get(name)
+        if b is None:
+            out.append('{}: 뒤에 없음'.format(_short(name)))
             continue
-        kind_b, value_b = b[path]
-        if value.startswith(('size ', 'len ')) and value != value_b:
-            sizes.append('{} ({}): {} → {}'.format(path, kind.rsplit('.', 1)[-1], value, value_b))
-        elif (kind, value) != (kind_b, value_b) and kind != 'ref':
-            changed.append('{}: {} → {}'.format(path, value_text((kind, value)), value_text((kind_b, value_b))))
-    return where, sizes, changed
+        keys = [k for k in a if k not in b or a[k] != b[k]] + [k for k in b if k not in a]
+        keys = [k for k in keys if 'ref' not in (a.get(k, ('',))[0], b.get(k, ('',))[0])]
+        out += ['{}{}: {} → {}'.format(_short(name), k, value_text(a[k]) if k in a else '-',
+                                       value_text(b[k]) if k in b else '-') for k in keys] or ['{}: 같음'.format(_short(name))]
+    return out
+
+
+def outside(a: Dict[str, Node], b: Dict[str, Node], lst: str) -> List[str]:
+    """목록 밖에서 값이 바뀌거나 생기거나 없어진 경로. 참조는 뺀다."""
+    def inside(path: str) -> bool:
+        return path == lst or path.startswith(lst + '[')
+    keys = [k for k in a if not inside(k) and (k not in b or a[k] != b[k])] + [k for k in b if not inside(k) and k not in a]
+    return ['{}: {} → {}'.format(k, value_text(a[k]) if k in a else '-', value_text(b[k]) if k in b else '-')
+            for k in keys if 'ref' not in (a.get(k, ('',))[0], b.get(k, ('',))[0])]
 
 
 def _wrap(text: str, limit: int = 2) -> List[str]:
@@ -290,21 +339,23 @@ def main(argv: Sequence[str], environ=None, run: Runner = run_cmd) -> int:
         return 1
     found = scan(home)
     java = pick_java(found)
-    print('CT 설치: jar {}개(못 읽은 jar {}), java.exe {}개, javac.exe {}개'.format(
-        len(found.jars), found.bad_jars, len(found.javas), len(found.javacs)))
-    for label, hits in found.hits.items():
-        print(_wrap('{}: {}'.format(label, ', '.join(sorted(set(hits))[:3]) or '없음'), 1)[0])
+    env = ['CT 설치: jar {}개(못 읽은 jar {}), java.exe {}개, javac.exe {}개'.format(
+        len(found.jars), found.bad_jars, len(found.javas), len(found.javacs))]
+    env += [_wrap('{}: {}'.format(label, ', '.join(sorted(set(hits))[:3]) or '없음'), 1)[0]
+            for label, hits in found.hits.items()]
     if java is None:
-        print('  Java: 없음. CT 안에도 PATH에도 java.exe가 없음')
+        print('\n'.join(env + ['  Java: 없음. CT 안에도 PATH에도 java.exe가 없음']))
         return 0
     major, first, compiler = java_info(java, run)
     where = java.relative_to(home).as_posix() if home in java.parents else '(PATH)'
-    print('  Java: {} | {} | 컴파일러 모듈 {}'.format(where, first, '있음' if compiler else '없음'))
+    env.append('  Java: {} | {} | 컴파일러 모듈 {}'.format(where, first, '있음' if compiler else '없음'))
     dump: List[str] = []
+    read: List[str] = []
     with tempfile.TemporaryDirectory() as tmp:
         how, command = prepare(java, major, compiler, found, Path(tmp), run)
-        print('읽는 방법: {}'.format(how))
+        read.append('읽는 방법: {}'.format(how))
         graphs: List[Optional[Dict[str, Node]]] = []
+        oks: List[str] = []
         for label, utest in zip(('처음', '체크한 뒤'), utests):
             if command is None:
                 graphs.append(None)
@@ -313,27 +364,41 @@ def main(argv: Sequence[str], environ=None, run: Runner = run_cmd) -> int:
             ok, tries, fail, nodes = parse_dump(out)
             dump += ['## {} (종료 {})'.format(label, code)] + out.splitlines()
             if ok:
-                print('  {} 읽기: {}로 읽음, 노드 {}개'.format(label, ok, len(nodes)))
+                read.append('  {} 읽기: {}로 읽음, 노드 {}개'.format(label, ok, len(nodes)))
                 graphs.append(nodes)
+                oks.append(ok)
             else:
                 reason = fail or (tries[-1] if tries else 'Java 실행 실패(종료 {}, 오류 {}줄)'.format(
                     code, len(err.splitlines())))
-                print(_wrap('{} 읽기 실패: {}'.format(label, safe_chain(reason)), 2)[0])
+                read.append(_wrap('{} 읽기 실패: {}'.format(label, safe_chain(reason)), 2)[0])
                 graphs.append(None)
-    if graphs and graphs[0] is not None and graphs[1] is not None:
-        where_lines, sizes, changed = compare(graphs[0], graphs[1])
-        root = graphs[0].get('/', ('?', ''))[0]
-        print('뿌리 {}, 노드 {} → {}'.format(root, len(graphs[0]), len(graphs[1])))
-        print('이름 위치:')
-        for line in where_lines:
-            print(_wrap(line, 1)[0])
-        print('크기가 바뀐 모음 {}:'.format(len(sizes)))
-        for line in sizes[:6]:
-            print(_wrap(line, 1)[0])
-        print('값이 바뀐 경로 {}:'.format(len(changed)))
-        for line in changed[:6]:
-            print(_wrap(line, 1)[0])
-        dump += ['## 이름 위치'] + where_lines + ['## 크기'] + sizes + ['## 바뀐 값'] + changed
+    if len(graphs) == 2 and graphs[0] is not None and graphs[1] is not None:
+        a, b = graphs
+        print('{} | {}, {}로 둘 다 읽음, 뿌리 {}, 노드 {} → {}'.format(
+            first[:40], how, oks[0].rsplit(' ', 1)[-1], a.get('/', ('?', ''))[0].rsplit('.', 1)[-1], len(a), len(b)))
+        lst = var_list(a) or var_list(b)
+        if lst is None:
+            print('견본 변수 이름이 든 목록을 찾지 못함: 이 화면을 보내 주기')
+        else:
+            ea, eb = elements(a, lst), elements(b, lst)
+            kind = b.get(lst + '[0]', ('?', ''))[0].rsplit('.', 1)[-1]
+            print(_wrap('전역 변수 목록 {}({}): 처음 {} → 뒤 {}'.format(
+                lst, kind, ', '.join(map(_short, ea)), ', '.join(map(_short, eb))), 2)[0].strip())
+            rows, hidden, same = varying(eb)
+            print('뒤의 변수마다 다른 필드 {}(목록 안 필드 {}, 모두 같은 필드 {}는 안 찍음):'.format(len(rows), hidden, same))
+            for line in rows[:14]:
+                print(_wrap(line, 1)[0])
+            moved = changes(ea, eb)
+            print('같은 변수의 처음 → 뒤 {}곳:'.format(sum(1 for m in moved if not m.endswith(': 같음'))))
+            for line in moved[:8]:
+                print(_wrap(line, 1)[0])
+            rest = outside(a, b, lst)
+            print('목록 밖에서 바뀐 곳 {}:'.format(len(rest)))
+            for line in rest[:5]:
+                print(_wrap(line, 1)[0])
+            dump += ['## 변수마다 다른 필드'] + rows + ['## 처음 → 뒤'] + moved + ['## 목록 밖'] + rest
+    else:
+        print('\n'.join(env + read))
     try:
         (Path(tempfile.gettempdir()) / DUMP).write_text('\n'.join(dump) + '\n', encoding='utf-8')
         print('전체 그래프: %TEMP%\\{}(밖으로 보내지 않기)'.format(DUMP))

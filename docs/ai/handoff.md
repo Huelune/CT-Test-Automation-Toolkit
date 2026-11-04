@@ -104,6 +104,12 @@
 - **Java 도우미는 에이전트 PC에서 컴파일해 `.class`로 커밋한다**(사용자 허락, 2026-11-04). 에이전트 PC의 임시 작업 폴더에
   Eclipse Temurin JDK 21.0.13을 받아 두었다(SHA-256을 adoptium 값과 맞춤, 저장소 밖). `--release 11`로 컴파일하고 소스 해시를
   `tools/java/UtestDump.sha256`에 둔다(`tools/java/README.md`). 세션이 바뀌어 JDK가 없으면 같은 곳에서 다시 받는다.
+- **CT의 FST로 `.utest`를 객체로 읽었다**(26절 세 번째 화면, 2026-11-04). `FSTConfiguration.createDefaultConfiguration()`의
+  `asObject`로 둘 다 읽혔고, 뿌리는 `com.codescroll.ut.core.common.model.UtTest`, 노드는 598 → 884개였다. 전역 변수는
+  `.testCodeStructure.globalVarList.utVarList`(ArrayList)에 이름 차례로 든다(처음 2개 → 뒤 5개). 변수 원소에는 `shortName`,
+  `fullName`, `symbol`, `isDef`, `isUse`, `typeCode`(`int %d` 꼴), `childrenUtVar`(포인터의 가리키는 메모리), `editPartitions`·
+  `defaultPartitions`(`utPartitionList`)가 있다. 경로로 비교해 원소가 밀린 탓에 방향 필드는 아직 모른다. 이름으로 짝지어 보는
+  27절을 받는다.
 - CT 2025 [테스트 내보내기]의 입력·출력 지정은 `UNITTESTS\<테스트 이름>.csv`의 머리글 줄
   (`<input>`, `<expect>`, `<output>`, `<toutput>` 구역)에 담기고 `testInfo.export`는 바뀌지 않는다
   (2026-10-29 todo.md 2절). 같은 폴더의 `.utest`도 지정과 함께 바뀐다(2026-11-02 4절). 자세한

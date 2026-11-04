@@ -29,7 +29,7 @@ CT_SAVED = ROOT / 'result' / 'ct_home.txt'
 
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
 SECTIONS = {
-    '26': ('CT에 든 Java로 .utest를 읽을 수 있는지',
+    '27': ('.utest 전역 변수 항목을 이름으로 짝지어 비교',
            ['tools/java_probe.py', 'C:/ctsample/out/17', 'C:/ctsample/out/18', CT]),
 }
 
