@@ -47,9 +47,11 @@ PREFIX = 'dmy_carry_test'
 NAMES = ('dmy_c_direct', 'dmy_c_callee', 'dmy_c_ptr', 'dmy_c_p', 'dmy_c_unused', 'dmy_sum', 'dmy_recs')
 C_WORDS = {'signed', 'unsigned', 'int', 'char', 'short', 'long', 'float', 'double', 'void', 'const', 'volatile',
            'struct', 'union', 'enum', 'static', 'extern', 'returnVar'}
+# Java 클래스 이름 꼴: 흔한 뿌리 + 소문자 꾸러미 + 대문자로 시작하는 이름. 끝이 소문자인 도메인·메일 주소는 걸리지 않는다.
+CLASS = r'(?:java|javax|com|org|net|sun|jdk)(?:\.[a-z][a-z0-9_]*)+\.[A-Z][\w$]*'
 DUMP = 'ct_utest_probe.txt'
-MAX_DIFF = 16  # 화면에 찍을 비교 줄 수
-E_ARGS = '[ERROR] 폴더 둘을 받지 못함: todo.bat 24로 돌리기'
+MAX_DIFF = 20  # 화면에 찍을 비교 줄 수(다른 곳마다 두 줄까지)
+E_ARGS = '[ERROR] 폴더 둘을 받지 못함: todo.bat 24나 25로 돌리기'
 E_ONE = '[ERROR] {} 폴더의 dmy_carry 테스트 .utest가 {}개: todo.md 24절대로 하나만 두고 내보내기'
 
 Leaf = Tuple[str, str, int]  # (경로, 값, 바이트 위치)
@@ -76,7 +78,30 @@ def show(text: str) -> str:
     """견본 이름·C 타입 낱말·숫자로만 된 글자열은 그대로, 나머지는 `*<길이>`."""
     ok = (len(text) <= 60 and re.fullmatch(r'[A-Za-z0-9_ .,()\[\]*&<>-]*', text) is not None
           and all(w.startswith('dmy_') or w in C_WORDS for w in re.findall(r'[A-Za-z_]\w*', text)))
-    return '"{}"'.format(text) if ok else '*{}'.format(len(text))
+    return '"{}"'.format(text) if ok else '~' + shape(text)
+
+
+_KEEP = re.compile(CLASS + r'|dmy_\w*|\b(?:' + '|'.join(sorted(C_WORDS)) + r')\b')
+
+
+def shape(text: str, limit: int = 60) -> str:
+    """가릴 글자열의 모양만: 견본 이름·C 타입 낱말·CT 클래스 이름은 두고, 숫자는 9, 영문 소문자는 a, 대문자는 A,
+    ASCII가 아닌 글자는 ?로 바꾼다. 문장 부호는 둔다(경로인지 날짜인지 보이게). 2026-11-04 24절 두 번째 화면에서
+    `*길이`로만 가려 구조를 읽을 수 없어 더했다."""
+    def blur(part: str) -> str:
+        part = re.sub(r'[0-9]', '9', part)
+        part = re.sub(r'[a-z]', 'a', part)
+        part = re.sub(r'[A-Z]', 'A', part)
+        return ''.join(c if c.isascii() else '?' for c in part)
+    out: List[str] = []
+    pos = 0
+    for m in _KEEP.finditer(text):
+        out.append(blur(text[pos:m.start()]))
+        out.append(m.group())
+        pos = m.end()
+    out.append(blur(text[pos:]))
+    shaped = ''.join(out)
+    return shaped if len(shaped) <= limit else shaped[:limit] + '…{}'.format(len(text))
 
 
 class _Reader:
@@ -322,10 +347,6 @@ def found_as(data: bytes, strings: Sequence[str], name: str) -> str:
     return ''
 
 
-# Java 클래스 이름 꼴: 흔한 뿌리 + 소문자 꾸러미 + 대문자로 시작하는 이름. 끝이 소문자인 도메인·메일 주소는 걸리지 않는다.
-CLASS = r'(?:java|javax|com|org|net|sun|jdk)(?:\.[a-z][a-z0-9_]*)+\.[A-Z][\w$]*'
-
-
 def classes(data: bytes) -> List[str]:
     """바이트 안의 Java 클래스 이름 꼴(CLASS), 처음 나온 차례로 겹치지 않게."""
     seen: List[str] = []
@@ -343,9 +364,8 @@ def tokens(data: bytes) -> List[str]:
     pos = 0
 
     def binary(chunk: bytes) -> str:
-        if len(chunk) <= 12:
-            return 'x ' + ' '.join('{:02x}'.format(b) for b in chunk)
-        return 'x {}바이트 crc {:08x}'.format(len(chunk), zlib.crc32(chunk))
+        text = 'x ' + ' '.join('{:02x}'.format(b) for b in chunk[:16])
+        return text if len(chunk) <= 16 else text + ' …{}바이트 crc {:08x}'.format(len(chunk), zlib.crc32(chunk))
 
     for m in re.finditer(rb'[\x20-\x7e]{4,}', data):
         if m.start() > pos:
@@ -381,16 +401,62 @@ def diff_seq(a: List[str], b: List[str]) -> Tuple[str, List[str]]:
     return summary, lines
 
 
+def region_lines(a: List[str], b: List[str]) -> List[str]:
+    """다른 곳마다 한 줄: `@ 바로 앞 낱개  - 처음 낱개들  + 체크한 뒤 낱개들`(낱개 사이는 ` / `)."""
+    out: List[str] = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(None, a, b, autojunk=False).get_opcodes():
+        if tag != 'equal':
+            out.append('@ {}  - {}  + {}'.format(a[i1 - 1] if i1 else '(처음)', ' / '.join(a[i1:i2]) or '없음',
+                                                 ' / '.join(b[j1:j2]) or '없음'))
+    return out
+
+
 def _utests(folder: Path) -> List[Path]:
     if not folder.is_dir():
         return []
     return sorted(p for p in folder.rglob('*.utest') if p.stem.startswith(PREFIX) and p.is_file())
 
 
+def around(toks: List[str], name: str, before: int = 8, after: int = 12) -> List[str]:
+    """그 이름이 처음 든 글자 낱개의 앞뒤 낱개들. 없으면 []."""
+    word = re.compile(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])')
+    for i, tok in enumerate(toks):
+        if tok.startswith('t ') and word.search(tok):
+            return toks[max(0, i - before):i + after + 1]
+    return []
+
+
+def inline(label: str, toks: List[str], max_lines: int = 8) -> List[str]:
+    """`label: a | b | c`를 118열로 접어 max_lines 줄까지."""
+    lines = textwrap.wrap('{}: {}'.format(label, ' | '.join(toks) if toks else '없음'), WIDTH,
+                          subsequent_indent='    ', break_on_hyphens=False)
+    return lines[:max_lines - 1] + ['    …'] if len(lines) > max_lines else lines
+
+
+def layout(before: bytes, after: bytes) -> List[str]:
+    """25절 화면: 처음 `.utest`의 앞부분, 처음의 `dmy_c_direct`(CT가 기본으로 체크) 둘레, 체크한 뒤의 `dmy_c_callee`·
+    `dmy_c_unused`(손으로 체크) 둘레를 바이트 낱개로."""
+    a, b = tokens(unwrap(before)[1]), tokens(unwrap(after)[1])
+    return (inline('처음 앞부분', a[:24]) + inline('처음 dmy_c_direct 둘레', around(a, 'dmy_c_direct'))
+            + inline('체크한 뒤 dmy_c_callee 둘레', around(b, 'dmy_c_callee'))
+            + inline('체크한 뒤 dmy_c_unused 둘레', around(b, 'dmy_c_unused')))
+
+
 def main(argv: Sequence[str]) -> int:
+    show_layout = '--layout' in argv
+    argv = [a for a in argv if a != '--layout']
     if len(argv) != 2:
         print(E_ARGS)
         return 1
+    if show_layout:
+        found = [_utests(Path(a)) for a in argv]
+        for label, utests in zip(('처음', '체크한 뒤'), found):
+            if len(utests) != 1:
+                print(E_ONE.format(label, len(utests)))
+                return 1
+        for line in layout(found[0][0].read_bytes(), found[1][0].read_bytes()):
+            print(line)
+        return 0
     parsed: List[Optional[List[Leaf]]] = []
     payloads: List[bytes] = []
     dump: List[str] = []
@@ -433,16 +499,29 @@ def main(argv: Sequence[str]) -> int:
         dump += ['## {} 클래스 이름 꼴'.format(label)] + names
         parsed.append(None if failed or reader is None else reader.leaves)
     if parsed[0] is not None and parsed[1] is not None:
-        summary, lines = diff_lines(parsed[0], parsed[1])
+        a = ['{} = {}'.format(p, v) for p, v, _ in parsed[0]]
+        b = ['{} = {}'.format(p, v) for p, v, _ in parsed[1]]
+        summary = ''
     else:  # Java 직렬화로 못 풀면 바이트 낱개로 비교한다
-        summary, lines = diff_seq(tokens(payloads[0]), tokens(payloads[1]))
-        summary = '바이트 낱개 비교: ' + summary
-    print(summary)
-    for line in lines[:MAX_DIFF]:
-        print('  ' + _short(line, WIDTH))
-    if len(lines) > MAX_DIFF:
-        print('  … 나머지 {}줄은 파일에'.format(len(lines) - MAX_DIFF))
-    dump += ['## 비교', summary] + lines
+        a, b = tokens(payloads[0]), tokens(payloads[1])
+        summary = '바이트 낱개 비교: '
+    summary_text, lines = diff_seq(a, b)
+    print(summary + summary_text)
+    shown = 0
+    regions = region_lines(a, b)
+    for n, region in enumerate(regions):  # 다른 곳마다 두 줄까지
+        wrapped = textwrap.wrap(region, WIDTH, initial_indent='  ', subsequent_indent='    ',
+                                break_on_hyphens=False)
+        if shown + min(len(wrapped), 2) > MAX_DIFF:
+            print('  … 나머지 {}군데는 파일에'.format(len(regions) - n))
+            break
+        part = wrapped[:2]
+        if len(wrapped) > 2:
+            part[1] = part[1][:WIDTH - 1] + '…'
+        for line in part:
+            print(line)
+        shown += len(part)
+    dump += ['## 비교', summary + summary_text] + lines
     try:
         (Path(tempfile.gettempdir()) / DUMP).write_text('\n'.join(dump) + '\n', encoding='utf-8')
         print('전체 잎과 비교: %TEMP%\\{}(밖으로 보내지 않기)'.format(DUMP))

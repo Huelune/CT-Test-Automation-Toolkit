@@ -73,13 +73,13 @@ class UtestProbeTest(unittest.TestCase):
         self.assertTrue(any(p == '' and v.startswith('array [I len 2') for p, v, _ in listed))
         leaves = {p: v for p, v, _ in listed}
         self.assertEqual(leaves['/UtTest.count'], '7')
-        self.assertEqual(leaves['/UtTest.name'], '*25')
+        self.assertEqual(leaves['/UtTest.name'], '~A:\\aaaaaa_aaa\\dmy_carry.a')
         var = '/UtTest.vars/ArrayList.@/UtVar'
         self.assertEqual(leaves[var + '.checked'], 'false')
         self.assertEqual(leaves[var + '.dir'], 'enum Dir.NONE')
         self.assertEqual(leaves[var + '.vname'], '"dmy_c_direct"')
         self.assertEqual(leaves['/UtTest.vars/ArrayList.size'], '1')
-        self.assertTrue(leaves[''].startswith('*'))  # 맨 끝 글자열 secret_account는 가린다
+        self.assertEqual(leaves[''], '~aaaaaa_aaaaaaa')  # 맨 끝 글자열 secret_account는 모양만
 
     def test_diff_shows_flag_change_and_inserted_variable(self) -> None:
         summary, lines = utest_probe.diff_lines(utest_probe.parse(_stream()),
@@ -100,8 +100,33 @@ class UtestProbeTest(unittest.TestCase):
 
     def test_show_keeps_only_sample_names_and_c_words(self) -> None:
         self.assertEqual(utest_probe.show('dmy_carry(signed int)'), '"dmy_carry(signed int)"')
-        self.assertEqual(utest_probe.show('ACCOUNT'), '*7')
-        self.assertEqual(utest_probe.show('C:\\a'), '*4')
+        self.assertEqual(utest_probe.show('ACCOUNT'), '~AAAAAAA')
+        self.assertEqual(utest_probe.show('C:\\a'), '~A:\\a')
+        self.assertEqual(utest_probe.show('2026-11-04 12:09'), '~9999-99-99 99:99')
+        self.assertEqual(utest_probe.show('*com.codescroll.ut.UtTest'), '~*com.codescroll.ut.UtTest')
+        self.assertEqual(utest_probe.show('x' * 70), '~' + 'a' * 60 + '…70')
+        self.assertEqual(utest_probe.show('계정'), '~??')
+
+    def test_layout_shows_bytes_around_names_without_secret(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        before, after = Path(tmp.name) / 'secret_a', Path(tmp.name) / 'secret_b'
+        head = b'\x00\x01\x2acom.codescroll.ut.UtTest\x05secret_user\x01'
+        _put(before, 'dmy_carry_test0.utest', head + b'\x0cdmy_c_direct\x00\x01')
+        _put(after, 'dmy_carry_test0.utest', head + b'\x0cdmy_c_direct\x00\x02\x0cdmy_c_callee\x00\x02'
+             + b'\x0cdmy_c_unused\x03')
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = utest_probe.main([str(before), str(after), '--layout'])
+        out = buf.getvalue()
+        self.assertEqual(code, 0, out)
+        self.assertNotIn('secret', out)
+        self.assertIn('처음 앞부분: x 00 01 | t ~*com.codescroll.ut.UtTest', out)
+        self.assertIn('t ~aaaaaa_aaaa', out)
+        self.assertIn('처음 dmy_c_direct 둘레: ', out)
+        self.assertIn('체크한 뒤 dmy_c_callee 둘레: ', out)
+        self.assertIn('체크한 뒤 dmy_c_unused 둘레: ', out)
+        self.assertTrue(all(len(line) <= 120 for line in out.splitlines()))
 
     def test_main_prints_counts_and_no_secret(self) -> None:
         tmp = tempfile.TemporaryDirectory()
@@ -162,8 +187,7 @@ class UtestProbeTest(unittest.TestCase):
         self.assertIn('꼴 모름', out)
         self.assertIn('클래스 이름 꼴 1: com.codescroll.ut.UtVar', out)
         self.assertIn('바이트 낱개 비교: ', out)
-        self.assertIn('@ t "dmy_c_direct"', out)
-        self.assertIn('+ t "dmy_c_callee"', out)
+        self.assertIn('@ t "dmy_c_direct"  - x 00 01  + x 00 02 09 / t "dmy_c_callee" / x 00 02', out)
 
     def test_main_needs_one_utest_per_folder(self) -> None:
         tmp = tempfile.TemporaryDirectory()

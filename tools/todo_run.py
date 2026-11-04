@@ -26,6 +26,8 @@ LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들�
 SECTIONS = {
     '24': ('전역 변수를 체크하면 .utest의 무엇이 바뀌는지',
            ['tools/utest_probe.py', 'C:/ctsample/out/17', 'C:/ctsample/out/18']),
+    '25': ('.utest의 변수 이름 둘레 바이트',
+           ['tools/utest_probe.py', 'C:/ctsample/out/17', 'C:/ctsample/out/18', '--layout']),
 }
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
