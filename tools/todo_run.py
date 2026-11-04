@@ -23,7 +23,10 @@ ROOT = Path(__file__).resolve().parents[1]
 LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들어갈 자리
 
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
-SECTIONS = {}  # 지금 돌릴 절이 없다. 23절 확인은 tools/carry_probe.py <원래> <만든 뒤> <붙인 뒤>로 다시 돌릴 수 있다
+SECTIONS = {
+    '24': ('전역 변수를 체크하면 .utest의 무엇이 바뀌는지',
+           ['tools/utest_probe.py', 'C:/ctsample/out/17', 'C:/ctsample/out/18']),
+}
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
 E_NO_LIST = '목록 경로가 비었음: todo.bat을 다시 열고 목록 파일을 창에 끌어다 놓은 뒤 Enter'
