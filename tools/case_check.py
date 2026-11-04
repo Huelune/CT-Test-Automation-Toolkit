@@ -1,9 +1,13 @@
-"""원소·멤버 지정의 모든 경우를 견본으로 한 번에 돌려 보는 확인 도구 (todo.md 21절).
+"""원소·멤버 지정 견본 확인 도구 (todo.md 22절). `case_check.py <견본 폴더> [<변형 폴더>]`.
 
-`examples/ct_sample/io_cases.example.xlsx`의 줄마다 `기대` 칸과 툴킷의 판정을 맞춰 본다. 사본 CSV를 내보낸 폴더의
+견본 폴더(CT가 dmy_calc·dmy_pick 테스트를 내보낸 것)의 머리글을 찍고, 모든 경우를 한 번에 본다.
+`examples/ct_sample/io_cases.example.xlsx`의 줄마다 `기대` 칸과 툴킷의 판정을 맞춰 본다. 사본 CSV를 견본 폴더의
 복사본에 덮어 다시 읽어 돌렸을 때 바뀔 것이 없는지(README 8단계의 확인), `해제 기대` 시트의 기호가 사본에서
 빠졌는지도 본다. 목록 한 장으로 만들 수 없는 함수 여럿·값 있음·타입 제외는 내보낸 dmy_calc CSV를 고친 사본으로
-따로 본다. 파일은 임시 폴더에만 쓴다.
+따로 본다. 이 확인의 파일은 임시 폴더에만 쓴다.
+
+변형 폴더를 주었는데 아직 없으면 CT가 기호 칸을 더하거나 뺀 CSV를 받는지 볼 변형을 `result\\probe\\<시각>\\`에
+만들고, 있으면(사용자가 변형을 CT에 넣고 내보낸 뒤) 그 머리글을 찍는다(member_probe).
 
 화면에는 행 번호, 정해 둔 낱말(지정, 건너뜀 이유), 개수, 견본 이름(member_probe의 가림 규칙)만 찍는다.
 """
@@ -14,10 +18,11 @@ import shutil
 import sys
 import tempfile
 import warnings
+from datetime import datetime
 from pathlib import Path
 from typing import Callable, Dict, List, Sequence, Tuple
 
-from member_probe import CALC, E_OPEN, _add, _find_source, _mask, _write, show_lines
+from member_probe import CALC, E_OPEN, _add, _find_source, _mask, _write, make_variants, show_lines
 
 from ct_toolkit import paths
 from ct_toolkit.ct_export import ExportError, load_tests, write_copy
@@ -62,8 +67,8 @@ def row_result(r: ListRow, result: MatchResult, keys: Dict[str, List[str]]) -> s
 
 
 def check_list(export_dir: Path, rows: List[ListRow], expected: Dict[int, str],
-               released: List[Tuple[str, str]], work: Path) -> Tuple[List[str], bool, Path]:
-    """목록 경우, 다시 돌림, 해제 기대를 보고 (화면 줄, 모두 맞음, 사본을 덮은 폴더)를 돌려준다."""
+               released: List[Tuple[str, str]], work: Path) -> Tuple[List[str], bool]:
+    """목록 경우, 다시 돌림, 해제 기대를 보고 (화면 줄, 모두 맞음)을 돌려준다."""
     tests = load_tests(export_dir).tests
     keys: Dict[str, List[str]] = {}
     for t in tests:
@@ -96,7 +101,7 @@ def check_list(export_dir: Path, rows: List[ListRow], expected: Dict[int, str],
               if not by_function.get(f) or any(s in t.symbols for t in by_function[f])]
     lines.append('해제 기대 {}: 맞음 {}, 틀림 {}'.format(len(released), len(released) - len(missed), len(missed)))
     lines.extend('틀림  해제 안 됨 {}'.format(_mask(s)) for s in missed)
-    return lines, wrong == 0 and left == 0 and not missed, again_dir
+    return lines, wrong == 0 and left == 0 and not missed
 
 
 def _set_value(symbol: str, value: str) -> Callable[[List[List[str]]], None]:
@@ -140,7 +145,7 @@ def extra_cases(export_dir: Path, work: Path) -> Tuple[List[str], bool]:
 
 
 def main(argv: Sequence[str]) -> int:
-    if len(argv) != 1 or not Path(argv[0]).is_dir():
+    if len(argv) not in (1, 2) or not Path(argv[0]).is_dir():
         print(E_OPEN)
         return 1
     export_dir = Path(argv[0])
@@ -152,13 +157,20 @@ def main(argv: Sequence[str]) -> int:
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
         try:
-            lines, ok, again_dir = check_list(export_dir, rows, expected, released, work)
+            lines, ok = check_list(export_dir, rows, expected, released, work)
             extra, extra_ok = extra_cases(export_dir, work)
         except ExportError as exc:
             print('[ERROR] ' + str(exc))
             return 1
-        for line in lines + extra + ['사본으로 다시 만든 테스트의 지정'] + show_lines(again_dir):
-            print(line)
+    lines = ['견본 머리글'] + show_lines(export_dir) + lines + extra
+    if len(argv) == 2 and Path(argv[1]).is_dir():
+        lines += ['변형으로 만든 테스트 머리글'] + show_lines(Path(argv[1]))
+    elif len(argv) == 2:
+        stamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        lines += ['변형 CSV: result\\probe\\{}\\'.format(stamp)]
+        lines += make_variants(export_dir, paths.result_dir() / 'probe' / stamp)
+    for line in lines:
+        print(line)
     return 0 if ok and extra_ok else 1
 
 

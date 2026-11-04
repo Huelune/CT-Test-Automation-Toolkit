@@ -1,4 +1,4 @@
-"""원소·멤버 지정 설계의 서버 PC 견본 확인 도구 (todo.md 19·20절).
+"""원소·멤버 지정 설계의 서버 PC 견본 확인 도구 (todo.md 22절, case_check가 부른다).
 
 CT가 구조체 배열 기호를 내보낸 CSV 머리글에 어떤 꼴로 적는지 보고(`show_lines`), CT가 기호 칸을 더하거나
 뺀 CSV를 받아 주는지 알아볼 변형 CSV를 만든다(`make_variants`). 설계: docs/design/io-designation-members.md
