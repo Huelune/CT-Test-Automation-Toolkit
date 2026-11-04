@@ -99,6 +99,19 @@ class JavaProbeTest(unittest.TestCase):
                                    environ if environ is not None else {'CT_HOME': str(self.home)}, self._run)
         return code, buf.getvalue()
 
+    def test_compiled_class_matches_source(self) -> None:
+        import hashlib
+        self.assertTrue(java_probe.COMPILED.is_file())
+        expected = java_probe.SOURCE_SHA.read_text(encoding='utf-8').strip()
+        self.assertEqual(hashlib.sha256(java_probe.SOURCE.read_bytes()).hexdigest(), expected,
+                         'UtestDump.java가 바뀌었다: tools/java/README.md대로 다시 컴파일하고 해시를 고친다')
+
+    def test_scan_skips_backup_copies(self) -> None:
+        _jar(self.home / 'backup' / 'init' / 'plugins' / 'old_fst.jar', {FST: b''})
+        found = java_probe.scan(self.home)
+        self.assertEqual(found.hits['FST'], ['plugins/org.nustaq.fst_2.57.jar'])
+        self.assertFalse(any('backup' in str(p) for p in found.jars))
+
     def test_scan_finds_markers_in_jars_and_nested_jars(self) -> None:
         found = java_probe.scan(self.home)
         self.assertEqual(found.hits['FST'], ['plugins/org.nustaq.fst_2.57.jar'])
@@ -111,7 +124,8 @@ class JavaProbeTest(unittest.TestCase):
         self.assertEqual(code, 0, out)
         self.assertNotIn('secret', out.lower())
         self.assertIn('Java: jre/bin/java.exe | openjdk version "17.0.9" 2023-10-17 | 컴파일러 모듈 있음', out)
-        self.assertIn('읽는 방법: 소스 바로 실행', out)
+        self.assertIn('읽는 방법: 미리 컴파일한 클래스', out)
+        self.assertEqual(self.commands[-1][-2], java_probe.MAIN)
         self.assertIn('처음 읽기: org.nustaq.serialization createUnsafeBinaryConfiguration로 읽음, 노드 7개', out)
         self.assertIn('dmy_c_direct: 처음 .globals[0].name  뒤 .globals[1].name', out)
         self.assertIn('.globals (ArrayList): size 1 → size 2', out)
@@ -130,10 +144,14 @@ class JavaProbeTest(unittest.TestCase):
         self.assertIn('처음 읽기 실패: java.lang.ClassNotFoundException(com.codescroll.X)', out)
         self.assertNotIn('secret', out.lower())
 
-    def test_no_compiler_and_no_ecj_reports_it(self) -> None:
-        self._run_old = self._run
-        self._run = lambda args: ((0, 'java.base@17\n', '') if '--list-modules' in args else self._run_old(args))
-        code, out = self._main()
+    def test_without_compiled_class_uses_source_or_reports_no_compiler(self) -> None:
+        missing = Path(self.root / 'none.class')
+        with mock.patch.object(java_probe, 'COMPILED', missing):
+            code, out = self._main()
+            self.assertIn('읽는 방법: 소스 바로 실행', out)
+            self._run_old = self._run
+            self._run = lambda args: ((0, 'java.base@17\n', '') if '--list-modules' in args else self._run_old(args))
+            code, out = self._main()
         self.assertIn('읽는 방법: 컴파일 수단 없음', out)
 
     def test_missing_ct_home(self) -> None:

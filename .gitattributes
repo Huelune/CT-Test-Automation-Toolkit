@@ -3,3 +3,5 @@
 *.cmd text eol=crlf
 *.py text eol=lf
 *.md text eol=lf
+*.java text eol=lf
+*.class binary

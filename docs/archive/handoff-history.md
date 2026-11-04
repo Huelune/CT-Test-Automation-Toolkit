@@ -271,3 +271,8 @@
 - 사용자가 CT에 든 Java로 `.utest`를 읽고 고치는 길을 골랐다. 서버 PC의 CT 안에서 `java.exe`, 컴파일 수단, FST·CT 모델 jar를
   찾고, `UtestDump.java`(리플렉션으로 FST를 불러 객체 그래프를 찍음)를 CT의 Java로 돌려 견본 `.utest` 둘을 비교하는
   `tools/java_probe.py`와 todo.md 26절을 더했다. java 인수 파일은 시스템 코드 페이지로 쓴다(임시 폴더에 한글 계정 이름이 있을 수 있음).
+- 26절 첫 화면은 `CT_HOME` 없음이었다(처음 준비 때 명령 창 `set`으로만 넣음). `todo.bat`이 CT 설치 폴더를 끌어다 놓게 묻고
+  `result\ct_home.txt`에 기억하게 했다. 같은 때 사용자 요청으로 todo.md를 맨 위 할 일 표 + 아래 설명 꼴로 바꿨다.
+- 26절 두 번째 화면: jar 633개, FST 2.45 jar, CT 모델 폴더 번들(`backup/init` 사본도), Java 21.0.4(컴파일러 없음), ECJ는 옛 JSP
+  엔진 jar뿐, "ECJ로 컴파일 실패". 사용자 허락을 받아 에이전트 PC에 Temurin JDK 21을 받아 `UtestDump`를 Java 11 바이트코드로
+  컴파일해 커밋했다. 가짜 FST jar와 한글 임시 폴더 경로로 조사 도구를 끝까지 돌려 봤다. `backup` 폴더는 빼고 26절을 다시 받는다.

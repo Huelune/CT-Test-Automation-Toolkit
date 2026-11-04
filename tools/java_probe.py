@@ -34,6 +34,10 @@ from utest_probe import NAMES, _utests, show
 
 SOURCE = Path(__file__).resolve().parent / 'java' / 'UtestDump.java'
 MAIN = 'UtestDump'
+# 미리 컴파일한 클래스(Java 11 바이트코드). CT의 Java 21에는 컴파일러가 없고 CT 안의 ECJ는 2015년 판이라
+# 컴파일하지 못했다(2026-11-04 26절). 소스를 고치면 다시 컴파일하고 SOURCE_SHA를 고친다(tools/java/README.md).
+COMPILED = SOURCE.with_suffix('.class')
+SOURCE_SHA = SOURCE.parent / 'UtestDump.sha256'
 MARKERS = {
     'FST': ('org/nustaq/serialization/FSTConfiguration.class',
             'de/ruedigermoeller/serialization/FSTConfiguration.class'),
@@ -83,7 +87,8 @@ def _marker(name: str) -> Optional[str]:
 
 def scan(home: Path) -> Found:
     found = Found()
-    for top, _dirs, files in os.walk(home):
+    for top, dirs, files in os.walk(home):
+        dirs[:] = [d for d in dirs if d.lower() != 'backup']  # CT의 backup\init 아래 옛 사본(26절)
         for file in files:
             path = Path(top) / file
             low = file.lower()
@@ -188,6 +193,9 @@ def prepare(java: Path, major: int, compiler: bool, found: Found, work: Path,
             run: Runner) -> Tuple[str, Optional[Callable[[Path], List[str]]]]:
     """(읽는 방법 이름, `.utest` 경로를 받아 java 명령을 돌려주는 함수). 방법이 없으면 None."""
     classpath = found.roots + found.jars + _extract_nested(found, work)
+    if major >= 11 and COMPILED.is_file():
+        args = _argfile(work, [COMPILED.parent] + classpath, major)
+        return '미리 컴파일한 클래스', lambda utest: [str(java), '@' + str(args), MAIN, str(utest)]
     if major >= 11 and compiler:
         args = _argfile(work, classpath, major)
         return '소스 바로 실행', lambda utest: [str(java), '@' + str(args), str(SOURCE), str(utest)]
