@@ -212,8 +212,9 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
         skipped_paths = blocked.get(key, []) + sorted(named.get(test.function, ()))
         for path, is_blocked in ([(p, False) for p in first] + [(p, True) for p in skipped_paths]):
             for s in test.symbols:
+                # 길이가 같으면 지정하는 줄이 이긴다: 지정하지 않는 소유자는 더 긴 경로일 때만 몫을 가져간다
                 if covers(path, s) and (s not in owner or len(path) > len(owner[s][0])
-                                        or (len(path) == len(owner[s][0]) and is_blocked)):
+                                        or (len(path) == len(owner[s][0]) and owner[s][1] and not is_blocked)):
                     owner[s] = (path, is_blocked)
         for path, (group, _) in first.items():
             r = group[0]

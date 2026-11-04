@@ -308,7 +308,6 @@ class MemberTest(unittest.TestCase):
         got = match([_row(2, 'dmy_f', 'x', 'in')], [t])
         self.assertEqual((got.released, got.released_vars), ({'k': ['a.b', 'a.d']}, 1))
 
-
     def test_to_symbol_only_maps_a_leading_return(self) -> None:
         self.assertEqual(to_symbol('dmy_return'), 'dmy_return')
         self.assertEqual(to_symbol('st.last_return'), 'st.last_return')
@@ -334,6 +333,20 @@ class MemberTest(unittest.TestCase):
         got = match([_row(2, 'dmy_f', 'a', 'in', file='a.c'), _row(3, 'dmy_f', 'a.b', 'out')], [a, b])
         self.assertEqual(got.skips, [Skip(3, 'dmy_f', 'a.b', R_MULTI)])
         self.assertEqual((got.symbol_changes, got.released), ({'ka': {'a.d': 'in'}}, {}))
+
+
+    def test_same_path_row_for_other_file_does_not_block_the_applying_row(self) -> None:
+        t = _test('k', 'f', 'a.c', x=CtVar('x', 'out'))
+        got = match([_row(2, 'f', 'x', 'in', file='a.c'), _row(3, 'f', 'x', 'out', file='b.c')], [t])
+        self.assertEqual((got.applied, got.symbol_changes, got.released, got.not_exported),
+                         ({'k': {'x': 'in'}}, {'k': {'x': 'in'}}, {}, ['f']))
+
+    def test_conflict_group_on_same_resolved_path_does_not_block_the_applying_row(self) -> None:
+        t = _test('k', 'dmy_f', **{'dmy_ptr_mem[0]': CtVar('dmy_ptr_mem[0]', 'in')})
+        got = match([_row(2, 'dmy_f', 'dmy_ptr', 'in'), _row(3, 'dmy_f', 'dmy_ptr', 'out'),
+                     _row(4, 'dmy_f', 'dmy_ptr_mem', 'out')], [t])
+        self.assertEqual([(s.row, s.reason) for s in got.skips], [(2, R_CONFLICT), (3, R_CONFLICT)])
+        self.assertEqual(got.symbol_changes, {'k': {'dmy_ptr_mem[0]': 'out'}})
 
 
 if __name__ == '__main__':
