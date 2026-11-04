@@ -334,6 +334,11 @@ class MemberTest(unittest.TestCase):
         self.assertEqual(got.skips, [Skip(3, 'dmy_f', 'a.b', R_MULTI)])
         self.assertEqual((got.symbol_changes, got.released), ({'ka': {'a.d': 'in'}}, {}))
 
+    def test_row_for_other_file_does_not_block_designation_in_this_file(self) -> None:
+        t = _test('k', 'f', 'a.c', **{n: CtVar(n, 'out') for n in ('a.b', 'a.d')})
+        got = match([_row(2, 'f', 'a', 'in', file='a.c'), _row(3, 'f', 'a.b', 'out', file='b.c')], [t])
+        self.assertEqual(got.symbol_changes, {'k': {'a.b': 'in', 'a.d': 'in'}})
+        self.assertEqual(got.not_exported, ['f'])
 
     def test_same_path_row_for_other_file_does_not_block_the_applying_row(self) -> None:
         t = _test('k', 'f', 'a.c', x=CtVar('x', 'out'))

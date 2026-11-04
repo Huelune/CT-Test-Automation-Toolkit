@@ -164,7 +164,8 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
     not_exported = set()
     picked: Dict[str, CtTest] = {}  # 목록 줄이 고른 테스트(줄을 건너뛰었어도 센다)
     protected: Dict[str, Set[str]] = {}  # 테스트 key -> 목록 줄이 덮은 기호(건너뛰었어도 센다)
-    named: Dict[str, Set[str]] = {}  # 함수 -> 테스트를 못 고른 줄이 이름 붙인 경로와 그 `_mem` 꼴
+    named: Dict[str, Set[str]] = {}  # 함수 -> 테스트를 못 고른 줄이 이름 붙인 경로와 그 `_mem` 꼴(해제 보호)
+    named_multi: Dict[str, Set[str]] = {}  # 그 가운데 함수 여럿이라 못 고른 줄의 것(몫을 가져가는 소유자)
     # 테스트 key -> [(가장 앞선 행 번호, 줄 묶음, 해석된 경로, 덮는 기호들)]
     blocked: Dict[str, List[str]] = {}  # 테스트 key -> 목록 충돌로 건너뛴 줄의 해석된 경로
     pending: Dict[str, List[Tuple[int, List[ListRow], str, List[str]]]] = {}
@@ -181,6 +182,8 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
             protected.setdefault(test.key, set()).update(found)
         else:  # 함수 여럿이나 파일이 달라 버려진 줄도 그 경로가 어느 테스트의 것인지는 모른다
             named.setdefault(r.function, set()).update((path, path + '_mem'))
+            if multi:  # 파일이 달라 못 고른 줄은 다른 파일 테스트의 몫을 가져가지 않는다
+                named_multi.setdefault(r.function, set()).update((path, path + '_mem'))
         if len({g.direction for g in group}) > 1:
             for g in group:
                 skip(g, R_CONFLICT)
@@ -209,7 +212,7 @@ def match(rows: Sequence[ListRow], tests: Sequence[CtTest], reset_cases: bool = 
                 skip(group[0], R_CONFLICT)
         # 기호 -> (가장 긴 경로, 지정하지 않는 줄의 경로인지). 건너뛴 줄의 몫은 CT의 지정 그대로 둔다
         owner: Dict[str, Tuple[str, bool]] = {}
-        skipped_paths = blocked.get(key, []) + sorted(named.get(test.function, ()))
+        skipped_paths = blocked.get(key, []) + sorted(named_multi.get(test.function, ()))
         for path, is_blocked in ([(p, False) for p in first] + [(p, True) for p in skipped_paths]):
             for s in test.symbols:
                 # 길이가 같으면 지정하는 줄이 이긴다: 지정하지 않는 소유자는 더 긴 경로일 때만 몫을 가져간다

@@ -308,6 +308,8 @@ def _new_header(header: List[str],
     members: Dict[str, Set[str]] = {section: set() for section in SECTIONS}
     for symbol in first:
         variable = symbol_variable(symbol)[0]
+        # 변수 이름 찾기는 변수 이름 키를 넘기는 호출(테스트)용이다. `match`는 CT 기호 키를 넘기므로
+        # 스칼라 `x` 키는 `x.…`·`x->…` 기호도 옮긴다.
         key = symbol if symbol in directions else variable  # 기호 이름이 변수 이름보다 앞선다
         now = _DIRECTION_SECTIONS[directions[key]] if key in directions else held[symbol]
         for section in now:
@@ -350,7 +352,7 @@ def rewrite_csv(text: str, directions: Mapping[str, str], reset_cases: bool) -> 
     """CT 테스트 데이터 CSV 글의 머리글과 케이스 칸을 `directions`대로 고친다.
 
     `directions`는 CT 기호(또는 그 기호의 변수 이름) -> 'in'|'out'|'inout'|''(해제)이고 값이 그 밖이면
-    `ValueError`(`E_DIRECTION`)다. 기호 이름이 변수 이름보다 앞선다. 글에 없는 기호는 무시하고, 없는
+    `ValueError`(`E_DIRECTION`)다. 기호 이름이 변수 이름보다 앞선다. 글에 없는 기호는 무시하고, `directions`에 없는
     기호는 구역마다 원래 자리 그대로다. 1·2줄, 줄 끝, 마지막 줄 끝의 유무도 그대로다. 머리글보다 넓은 케이스 칸은 고친 줄
     뒤에 붙여 둔다. `reset_cases`면 케이스를 지우고 번호 `1`, 이름 `""`, 나머지 빈칸인 한 줄만 둔다.
     바꿀 것이 없거나 CT 머리글 꼴이 아니면(구역 표시가 없거나 알려진 구역 표시가 되풀이됨)

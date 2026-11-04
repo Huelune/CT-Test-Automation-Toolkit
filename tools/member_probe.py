@@ -24,7 +24,7 @@ from ct_toolkit.ct_export import (FIRST_LINE, NAME_PREFIX, RETURN_SYMBOL, SECTIO
 E_OPEN = '[ERROR] 내보낸 폴더를 읽을 수 없음: todo.md 절의 경로로 내보냈는지 확인'
 WIDTH = 118  # 120열 화면에 들어가도록
 _ROW = re.compile(r'[^\n]*\n|[^\n]+')
-_IDENT = re.compile(r'[A-Za-z_]\w*')
+_IDENT = re.compile(r'[A-Za-z_]\w*', re.ASCII)
 
 # 변형 원본으로 삼을 테스트 CSV 이름의 앞부분. 칸을 더하고 빼는 내용은 make_variants에 있다.
 CALC, PICK = 'dmy_calc_test', 'dmy_pick_test'
@@ -33,7 +33,7 @@ CALC, PICK = 'dmy_calc_test', 'dmy_pick_test'
 def _mask(name: str) -> str:
     """견본 이름만 그대로 두고 나머지는 `*`. 기호 안의 이름이 모두 견본이어야 그대로 둔다."""
     ids = _IDENT.findall(name)
-    ok = ids and all(i.startswith('dmy_') or i == RETURN_SYMBOL for i in ids)
+    ok = ids and name.isascii() and all(i.startswith('dmy_') or i == RETURN_SYMBOL for i in ids)
     return name if ok else '*'
 
 

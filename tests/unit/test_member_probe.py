@@ -52,6 +52,7 @@ class ProbeTest(unittest.TestCase):
         lines = member_probe.show_lines(self.export)
         text = '\n'.join(lines)
         self.assertNotIn('secret', text)
+        self.assertEqual(member_probe._mask('dmy_x한'), '*')  # 영문 아닌 글자가 든 이름도 가린다
         self.assertIn('dmy_gain', text)
         self.assertIn('dmy_calc_test0', text)
 

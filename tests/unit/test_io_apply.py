@@ -464,6 +464,21 @@ class MainTest(unittest.TestCase):
         for name in ('secret_fn', 'secret_released', 'secret_kept', 'secret_dir/x.csv'):
             self.assertIn(name, skipped)
 
+    def test_main_hides_symbol_names(self) -> None:
+        tests = [CtTest('secret_key', 'secret_fn', 'secret_file.c',
+                        {'secret_s.secret_m': CtVar('secret_s.secret_m', 'out'),
+                         'secret_s.secret_n': CtVar('secret_s.secret_n', 'in'),
+                         'secret_t.secret_k': CtVar('secret_t.secret_k', 'in')})]
+        listed = ListRead([ListRow(2, 'secret_fn', 'secret_s.secret_m', 'in'),
+                           ListRow(3, 'secret_fn', 'secret_t.secret_gone', 'in')], [])
+        code = self._run(listed, tests, export_dir=Path('export'))
+        self.assertEqual(code, 0)
+        self.assertNotIn('secret', self.console.getvalue())
+        self.assertNotIn('secret', self._log_text())
+        skipped = self._skipped()
+        for name in ('secret_t.secret_gone', 'secret_s.secret_n', 'secret_t.secret_k'):
+            self.assertIn(name, skipped)
+
     def test_screen_fits_one_page(self) -> None:
         tests = [CtTest('k1', 'dmy_calc', 'dmy_io.c', {'dmy_a': CtVar('dmy_a', '')})]
         self._run(_listed(), tests, unreadable=['other/x.csv'], export_dir=Path('export'))
