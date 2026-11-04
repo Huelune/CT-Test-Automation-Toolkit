@@ -17,17 +17,17 @@ from typing import List
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 sys.path.insert(0, str(Path(__file__).resolve().parent))  # 견본 CSV 만들기는 test_ct_export와 같이 쓴다
 
-from test_ct_export import UTEST, _by_section, _csv  # noqa: E402
+from test_ct_export import MIXED_HEADER, UTEST, _by_section, _case, _csv  # noqa: E402
 from ct_toolkit import ct_export  # noqa: E402
 from ct_toolkit.__main__ import _parser  # noqa: E402
 from ct_toolkit.ct_export import (  # noqa: E402
     E_EXPORT_EMPTY, E_EXPORT_OPEN, ExportError, ExportRead)
 from ct_toolkit.io_apply import (  # noqa: E402
-    E_OUT_WRITE, M_LIST_ONLY, M_NEXT, M_NOTHING, M_RENAMED_ONLY, R_KEPT, R_RELEASED, R_RENAMED,
-    R_RENAMED_TEST, R_UNREADABLE, main, summary_lines, write_skipped)
+    E_OUT_WRITE, M_LIST_ONLY, M_NEXT, M_NOTHING, M_RENAMED_ONLY, R_KEPT, R_NOT_IN_CT_TEST, R_RELEASED,
+    R_RENAMED, R_RENAMED_TEST, R_UNREADABLE, main, summary_lines, write_skipped)
 from ct_toolkit.io_list import (  # noqa: E402
     E_LIST_OPEN, R_LIST_EMPTY, ListError, ListFileError, ListRead, ListRow)
-from ct_toolkit.io_match import R_NO_VAR, CtTest, CtVar, MatchResult, Skip  # noqa: E402
+from ct_toolkit.io_match import R_NO_VAR, R_NOT_IN_CT, CtTest, CtVar, MatchResult, Skip  # noqa: E402
 from ct_toolkit.log import RunLog  # noqa: E402
 
 NOW = _dt.datetime(2026, 10, 29, 15, 30, 0)
@@ -49,7 +49,8 @@ def _result() -> MatchResult:
     return MatchResult(applied={'k1': {'dmy_a': 'in', 'dmy_b': 'out'}, 'k2': {'dmy_c': 'in'}},
                        skips=[Skip(4, 'dmy_calc', 'dmy_typo', R_NO_VAR)],
                        not_exported=['dmy_ghost'], unlisted=['dmy_other'], tests_total=3,
-                       changes={'k1': {'dmy_a': 'in'}}, released={'k2': ['dmy_old']})
+                       changes={'k1': {'dmy_a': 'in'}}, released={'k2': ['dmy_old']},
+                       symbol_changes={'k1': {'dmy_a': 'in'}})
 
 
 def _empty_result() -> MatchResult:
@@ -81,7 +82,7 @@ class SummaryTest(unittest.TestCase):
             '테스트    내보낸 것 3, 바꾼 것 2, 케이스 정리 2, 목록에 없는 것 1',
             '지정      변수 3(그중 바뀜 1), 목록에 없어 해제 1, 값 있어 둠 0',
             '안 다룸   내보내지 않은 함수 1, 읽지 못한 CSV 1, 이름 꼴이 아닌 테스트 0',
-            '건너뜀    함수 여럿 0, 변수 없음 1, 목록 충돌 0, 값 있음 0, 타입 제외 0',
+            '건너뜀    함수 여럿 0, 변수 없음 1, 목록 충돌 0, 값 있음 0, 타입 제외 0, CT에 없음 0',
             '사본      ' + OUT + ' (CSV 2)',
             '건너뛴 줄 ' + OUT + 'skipped.txt',
             M_NEXT])
@@ -164,6 +165,12 @@ class SkippedFileTest(unittest.TestCase):
         self.assertIn('-\tdmy_func\t-\t' + R_RENAMED_TEST, self._lines())
         self.assertEqual((R_RENAMED, R_RENAMED_TEST),
                          ('이름 꼴이 아닌 테스트', '테스트 이름이 <함수>_test<N> 꼴이 아님'))
+
+    def test_skipped_file_explains_not_in_ct(self) -> None:
+        result = _result()
+        result.skips = [Skip(5, 'dmy_calc', 'v[2].s', R_NOT_IN_CT)]
+        write_skipped(self.path, _listed(), result, _export())
+        self.assertIn('5\tdmy_calc\tv[2].s\t' + R_NOT_IN_CT_TEST, self._lines())
 
     def test_list_only_skipped_file_has_list_errors(self) -> None:
         write_skipped(self.path, _listed(), None)
@@ -407,6 +414,33 @@ class MainTest(unittest.TestCase):
         self.assertNotIn('dmy_', screen)
         self.assertNotIn('dmy_', self._log_text())
         self.assertIn('-\tdmy_calc\tdmy_spare\t목록에 없어 해제', self._skipped())
+
+    def _member_export(self) -> Path:
+        export = self.tmp / 'export'
+        csv = export / SAMPLE_KEY
+        csv.parent.mkdir(parents=True)
+        csv.write_bytes(_csv(header=MIXED_HEADER, case=_case(MIXED_HEADER)))
+        csv.with_suffix('.utest').write_bytes(UTEST)
+        return export
+
+    def test_member_rows_end_to_end(self) -> None:
+        listed = ListRead([ListRow(2, 'dmy_calc', 'st.cnt', 'out'), ListRow(3, 'dmy_calc', 'dmy_ok', 'inout'),
+                           ListRow(4, 'dmy_calc', 'dmy_in', 'in')], [])
+        code = self._run(listed, export_dir=self._member_export(), reset_cases=True,
+                         loader=ct_export.load_tests, writer=ct_export.write_copy)
+        self.assertEqual(code, 0)
+        lines = (self.out_root / STAMP / SAMPLE_KEY).read_bytes().decode('cp949').split('\r\n')
+        sections = _by_section(lines[2])
+        self.assertIn('st.cnt', sections['<expect>'])
+        self.assertNotIn('st.cnt', sections['<input>'])
+        self.assertNotIn('st.mode', sections['<input>'])
+        self.assertIn('목록에 없어 해제 1', self.console.getvalue())
+
+    def test_renamed_test_member_changes_left_out(self) -> None:
+        tests = [CtTest('k1', 'dmy_calc', 'dmy_io.c', {'st.a': CtVar('st.a', 'in'), 'st.b': CtVar('st.b', 'in')})]
+        listed = ListRead([ListRow(2, 'dmy_calc', 'st.a', 'out')], [])
+        self._run(listed, tests, renamed=['k1'], export_dir=Path('export'))
+        self.assertEqual(self.writes, [])  # 바뀌는 기호와 해제 기호 모두 사본에 넣지 않는다
 
     def test_main_hides_names_and_paths(self) -> None:
         self.out_root = self.tmp / 'secret_dir'

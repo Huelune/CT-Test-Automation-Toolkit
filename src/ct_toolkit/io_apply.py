@@ -18,7 +18,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import ct_export, paths
 from .io_list import ListFileError, ListRead, read_list
-from .io_match import SKIP_REASONS, MatchResult, match
+from .io_match import R_NOT_IN_CT, SKIP_REASONS, MatchResult, match
 from .log import RunLog
 
 E_OUT_WRITE = '결과 폴더에 쓸 수 없음: result 폴더 권한과 남은 공간을 확인'
@@ -34,6 +34,7 @@ R_KEPT = '목록에 없지만 값 있음'
 R_UNREADABLE = '읽지 못한 CSV'
 R_RENAMED = '이름 꼴이 아닌 테스트'  # 화면·로그용
 R_RENAMED_TEST = '테스트 이름이 <함수>_test<N> 꼴이 아님'  # skipped.txt 이유
+R_NOT_IN_CT_TEST = 'CT에 없음: CT에서 원소·멤버를 늘린 뒤 다시 내보내기'  # skipped.txt 이유
 
 _MAX_SAME_SECOND = 1000  # 같은 시각의 결과 폴더 이름(`_2`, `_3`…)을 시도하는 한도
 
@@ -76,7 +77,8 @@ def write_skipped(path: Path, listed: ListRead, result: Optional[MatchResult],
               for e in sorted(listed.errors, key=lambda e: e.row)]
     if result is not None:
         functions = {t.key: t.function for t in export.tests} if export is not None else {}
-        lines += ['{}\t{}\t{}\t{}'.format(s.row, s.function, s.variable, s.reason)
+        lines += ['{}\t{}\t{}\t{}'.format(s.row, s.function, s.variable,
+                                          R_NOT_IN_CT_TEST if s.reason == R_NOT_IN_CT else s.reason)
                   for s in result.skips]
         lines += ['-\t{}\t-\t{}'.format(name, R_UNLISTED) for name in result.unlisted]
         lines += ['-\t{}\t-\t{}'.format(functions.get(key, '-'), R_RENAMED_TEST)
@@ -99,6 +101,7 @@ def _without_tests(result: MatchResult, keys: Sequence[str]) -> MatchResult:
         return {k: v for k, v in found.items() if k not in keys}
 
     return dataclasses.replace(result, applied=kept(result.applied), changes=kept(result.changes),
+                               symbol_changes=kept(result.symbol_changes),
                                released=kept_lists(result.released), kept=kept_lists(result.kept))
 
 

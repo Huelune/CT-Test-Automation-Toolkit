@@ -131,16 +131,16 @@ class LoadTest(unittest.TestCase):
         self.assertEqual((len(got.tests), got.unreadable), (1, []))
         return got.tests[0]
 
-    def test_load_groups_symbols_by_variable(self) -> None:
+    def test_load_reads_symbols(self) -> None:
         test = self._only()
-        self.assertEqual(set(test.variables), {
-            'dmy_count', 'dmy_gain', 'dmy_hist', 'dmy_limit', 'dmy_mode', 'dmy_ptr_mem',
-            'dmy_spare', 'dmy_x', 'dmy_level', 'return'})
-        self.assertEqual({n: v.direction for n, v in test.variables.items()}, {
-            'dmy_count': 'inout', 'dmy_hist': 'inout', 'dmy_gain': 'in', 'dmy_limit': 'in',
-            'dmy_mode': 'in', 'dmy_ptr_mem': 'in', 'dmy_spare': 'in', 'dmy_x': 'in',
-            'dmy_level': 'out', 'return': 'out'})
-        self.assertTrue(all(v.supported and not v.has_values for v in test.variables.values()))
+        self.assertEqual(set(test.symbols), {
+            'dmy_count', 'dmy_gain', 'dmy_hist[0]', 'dmy_limit.dmy_hi', 'dmy_limit.dmy_lo', 'dmy_mode',
+            'dmy_ptr_mem[0]', 'dmy_spare', 'dmy_x', 'dmy_level', 'returnVar'})
+        self.assertEqual({n: v.direction for n, v in test.symbols.items()}, {
+            'dmy_count': 'inout', 'dmy_hist[0]': 'inout', 'dmy_gain': 'in', 'dmy_limit.dmy_hi': 'in',
+            'dmy_limit.dmy_lo': 'in', 'dmy_mode': 'in', 'dmy_ptr_mem[0]': 'in', 'dmy_spare': 'in',
+            'dmy_x': 'in', 'dmy_level': 'out', 'returnVar': 'out'})
+        self.assertTrue(all(v.supported and not v.has_values for v in test.symbols.values()))
 
     def test_function_and_file(self) -> None:
         test = self._only()
@@ -192,31 +192,30 @@ class LoadTest(unittest.TestCase):
         gain = fields.index('dmy_gain')
         output_return = [i for i, f in enumerate(fields) if f == 'returnVar'][1]  # <output> 구역
         test = self._only(case=_case(values={gain: '5', output_return: '9'}))
-        self.assertTrue(test.variables['dmy_gain'].has_values)
-        self.assertFalse(test.variables['return'].has_values)
-        self.assertFalse(test.variables['dmy_x'].has_values)
+        self.assertTrue(test.symbols['dmy_gain'].has_values)
+        self.assertFalse(test.symbols['returnVar'].has_values)
+        self.assertFalse(test.symbols['dmy_x'].has_values)
 
     def test_has_values_from_expect_column(self) -> None:
         fields = split_fields(HEADER)
         expect_level = fields.index('dmy_level')
         test = self._only(case=_case(values={expect_level: '3'}))
-        self.assertTrue(test.variables['dmy_level'].has_values)
+        self.assertTrue(test.symbols['dmy_level'].has_values)
 
     def test_unsupported_symbol_marks_variable(self) -> None:
         header = HEADER.replace(',dmy_x,<expect>', ',dmy_x,p->x,<expect>')
         test = self._only(header=header)
-        self.assertFalse(test.variables['p'].supported)
-        self.assertEqual(test.variables['p'].direction, 'in')
-        self.assertTrue(test.variables['dmy_x'].supported)
+        self.assertFalse(test.symbols['p->x'].supported)
+        self.assertEqual(test.symbols['p->x'].direction, 'in')
+        self.assertTrue(test.symbols['dmy_x'].supported)
 
-    def test_struct_members_in_different_sections_are_mixed(self) -> None:
-        # 멤버 하나는 입력·기대값에, 다른 하나는 입력에만 있다: 한 방향으로 말할 수 없다
+    def test_struct_members_keep_their_own_sections(self) -> None:
+        # 멤버 하나는 입력·기대값에, 다른 하나는 입력에만 있다: 기호마다 자기 지정이다
         test = self._only(header=MIXED_HEADER)
-        self.assertEqual(test.variables['st'].direction, 'mixed')
-        self.assertEqual(test.variables['dmy_ok'].direction, 'inout')
-        self.assertEqual(test.variables['dmy_in'].direction, 'in')
+        self.assertEqual({n: v.direction for n, v in test.symbols.items()},
+                         {'st.cnt': 'inout', 'st.mode': 'in', 'dmy_ok': 'inout', 'dmy_in': 'in'})
 
-    def test_mixed_struct_gets_every_member_in_the_listed_sections(self) -> None:
+    def test_whole_struct_row_puts_every_member_in_listed_sections(self) -> None:
         test = self._only(header=MIXED_HEADER)
         got = match([ListRow(2, 'dmy_calc', 'st', 'inout')], [test])
         self.assertEqual((got.changes, got.skips), ({test.key: {'st': 'inout'}}, []))
@@ -224,29 +223,30 @@ class LoadTest(unittest.TestCase):
             _sample_text(MIXED_HEADER), got.edits[test.key], True).split('\r\n')
         sections = _by_section(lines[2])
         for section in ('<input>', '<expect>', '<output>', '<toutput>'):
-            self.assertTrue({'st.cnt', 'st.mode'} <= set(sections[section]), section)
+            self.assertIn('st.mode', sections[section], section)  # 바뀌는 멤버만 옮긴다
+        self.assertTrue({'st.cnt'} <= set(sections['<input>']) & set(sections['<expect>']))  # 이미 inout인 멤버는 그대로
 
-    def test_mixed_struct_with_values_is_skipped_without_reset(self) -> None:
+    def test_whole_struct_row_with_values_is_skipped_without_reset(self) -> None:
         mode = split_fields(MIXED_HEADER).index('st.mode')
         test = self._only(header=MIXED_HEADER, case=_case(MIXED_HEADER, {mode: '5'}))
-        self.assertTrue(test.variables['st'].has_values)
+        self.assertTrue(test.symbols['st.mode'].has_values)
         got = match([ListRow(2, 'dmy_calc', 'st', 'inout')], [test])
         self.assertEqual([s.reason for s in got.skips], [R_HAS_VALUES])
         self.assertEqual((got.applied, got.changes), ({}, {}))
-        self.assertNotIn('st', got.edits.get(test.key, {}))  # 값을 잃지 않게 지정을 그대로 둔다
+        self.assertNotIn('st.mode', got.edits.get(test.key, {}))  # 값을 잃지 않게 지정을 그대로 둔다
         reset = match([ListRow(2, 'dmy_calc', 'st', 'inout')], [test], True)
         self.assertEqual(reset.changes, {test.key: {'st': 'inout'}})
 
-    def test_unlisted_mixed_variable_is_released(self) -> None:
+    def test_unlisted_struct_members_are_released(self) -> None:
         test = self._only(header=MIXED_HEADER)
         got = match([ListRow(2, 'dmy_calc', 'dmy_ok', 'inout')], [test])
-        self.assertIn('st', got.released[test.key])
+        self.assertTrue({'st.cnt', 'st.mode'} <= set(got.released[test.key]))
 
     def test_unknown_section_symbols_are_not_variables(self) -> None:
         header = HEADER.replace(',<output>,', ',<stub>,dmy_stub_ret,<output>,', 1)
         test = self._only(header=header)
-        self.assertNotIn('dmy_stub_ret', test.variables)
-        self.assertEqual(test.variables['return'].direction, 'out')
+        self.assertNotIn('dmy_stub_ret', test.symbols)
+        self.assertEqual(test.symbols['returnVar'].direction, 'out')
 
     def test_repeated_known_section_marker_is_unreadable(self) -> None:
         self._sample(project='good')
@@ -261,7 +261,7 @@ class LoadTest(unittest.TestCase):
 
     def test_repeated_unknown_section_marker_is_readable(self) -> None:
         test = self._only(header=HEADER + ',<stub>,dmy_a,<stub>,dmy_b')
-        self.assertEqual(test.variables['dmy_x'].direction, 'in')
+        self.assertEqual(test.symbols['dmy_x'].direction, 'in')
 
     def test_two_projects_same_file_name(self) -> None:
         self._sample(project='a')
@@ -435,6 +435,11 @@ class RewriteTest(unittest.TestCase):
         self.assertEqual(sections['<input>'][-1], 'returnVar')
         self.assertIn('returnVar', sections['<expect>'])
         self.assertIn('returnVar', sections['<toutput>'])
+
+    def test_rewrite_with_symbol_key_moves_only_that_member(self) -> None:
+        sections = _by_section(self._rewrite({'dmy_limit.dmy_hi': ''}).split('\r\n')[2])
+        self.assertIn('dmy_limit.dmy_lo', sections['<input>'])
+        self.assertNotIn('dmy_limit.dmy_hi', sections['<input>'])
 
     def test_values_follow_their_columns(self) -> None:
         old = split_fields(HEADER)

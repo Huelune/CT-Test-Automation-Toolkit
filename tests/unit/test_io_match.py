@@ -14,15 +14,15 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'src'))
 
 from ct_toolkit.io_list import ListRow  # noqa: E402
 from ct_toolkit.io_match import (  # noqa: E402
-    R_CONFLICT, R_HAS_VALUES, R_MULTI, R_NO_VAR, R_TYPE, CtTest, CtVar, Skip, match)
+    R_CONFLICT, R_HAS_VALUES, R_MULTI, R_NO_VAR, R_NOT_IN_CT, R_TYPE, CtTest, CtVar, Skip, match)
 
 
 def _row(row: int, function: str, variable: str, direction: str = 'in', file: str = '') -> ListRow:
     return ListRow(row, function, variable, direction, file=file)
 
 
-def _test(key: str, function: str, file: str = 'dmy_io.c', **variables: CtVar) -> CtTest:
-    return CtTest(key, function, file, variables)
+def _test(key: str, function: str, file: str = 'dmy_io.c', **symbols: CtVar) -> CtTest:
+    return CtTest(key, function, file, symbols)
 
 
 class MatchTest(unittest.TestCase):
@@ -241,6 +241,72 @@ class ChangesAndReleaseTest(unittest.TestCase):
         got = match([_row(2, 'dmy_f', 'dmy_b', 'out')], [t])
         self.assertEqual(got.edits, {'k': {'dmy_b': 'out', 'dmy_spare': ''}})
         self.assertEqual(got.changes, {'k': {'dmy_b': 'out'}})  # edits가 changes를 바꾸지 않는다
+
+
+class MemberTest(unittest.TestCase):
+    def test_member_rows_designate_only_those_members(self) -> None:
+        t = _test('k', 'dmy_f', **{n: CtVar(n, 'in') for n in ('a.b', 'a.d', 'a.C', 'a.e')})
+        got = match([_row(2, 'dmy_f', 'a.b', 'in'), _row(3, 'dmy_f', 'a.d', 'in'),
+                     _row(4, 'dmy_f', 'a.C', 'out')], [t])
+        self.assertEqual(got.changes, {'k': {'a.C': 'out'}})
+        self.assertEqual(got.symbol_changes, {'k': {'a.C': 'out'}})
+        self.assertEqual((got.released, got.released_vars), ({'k': ['a.e']}, 1))
+        self.assertEqual(got.edits, {'k': {'a.C': 'out', 'a.e': ''}})
+
+    def test_element_row_covers_its_members(self) -> None:
+        t = _test('k', 'dmy_f', **{n: CtVar(n, 'in') for n in ('v[0].s', 'v[0].t', 'v[1].s')})
+        got = match([_row(2, 'dmy_f', 'v[0]', 'out'), _row(3, 'dmy_f', 'v[1].s', 'in')], [t])
+        self.assertEqual(got.symbol_changes, {'k': {'v[0].s': 'out', 'v[0].t': 'out'}})
+        self.assertEqual((got.assigned, got.changed_vars, got.released), (2, 1, {}))
+
+    def test_most_specific_row_wins(self) -> None:
+        t = _test('k', 'dmy_f', **{n: CtVar(n, 'in') for n in ('a.b', 'a.d')})
+        got = match([_row(2, 'dmy_f', 'a', 'in'), _row(3, 'dmy_f', 'a.b', 'out')], [t])
+        self.assertEqual(got.symbol_changes, {'k': {'a.b': 'out'}})
+        self.assertEqual(got.assigned, 2)
+
+    def test_missing_member_is_not_in_ct_and_unknown_variable_is_no_var(self) -> None:
+        t = _test('k', 'dmy_f', **{'v[0].s': CtVar('v[0].s', 'in')})
+        got = match([_row(2, 'dmy_f', 'v[0].s', 'in'), _row(3, 'dmy_f', 'v[2].s', 'out'),
+                     _row(4, 'dmy_f', 'w[0]', 'in')], [t])
+        self.assertEqual(got.skips, [Skip(3, 'dmy_f', 'v[2].s', R_NOT_IN_CT),
+                                     Skip(4, 'dmy_f', 'w[0]', R_NO_VAR)])
+
+    def test_name_prefix_is_not_covered(self) -> None:
+        t = _test('k', 'dmy_f', a=CtVar('a', 'in'), ab=CtVar('ab', 'in'))
+        got = match([_row(2, 'dmy_f', 'a', 'out')], [t])
+        self.assertEqual(got.symbol_changes, {'k': {'a': 'out'}})
+        self.assertEqual(got.released, {'k': ['ab']})
+
+    def test_spaces_and_leading_zero_are_normalized(self) -> None:
+        t = _test('k', 'dmy_f', **{'v[1].s': CtVar('v[1].s', 'in')})
+        got = match([_row(2, 'dmy_f', 'v[ 01 ] . s', 'out')], [t])
+        self.assertEqual(got.applied, {'k': {'v[1].s': 'out'}})
+
+    def test_return_row_matches_return_var(self) -> None:
+        t = _test('k', 'dmy_f', returnVar=CtVar('returnVar', 'out'))
+        got = match([_row(2, 'dmy_f', 'return', 'out')], [t])
+        self.assertEqual((got.applied, got.changes), ({'k': {'returnVar': 'out'}}, {}))
+
+    def test_skipped_parent_row_keeps_its_share_and_child_still_applies(self) -> None:
+        t = _test('k', 'dmy_f', **{'a.b': CtVar('a.b', 'in'), 'a.d': CtVar('a.d', 'in', has_values=True)})
+        got = match([_row(2, 'dmy_f', 'a', 'out'), _row(3, 'dmy_f', 'a.b', 'out')], [t])
+        self.assertEqual(got.skips, [Skip(2, 'dmy_f', 'a', R_HAS_VALUES)])
+        self.assertEqual(got.symbol_changes, {'k': {'a.b': 'out'}})
+        self.assertEqual(got.released, {})
+
+    def test_unpicked_member_row_protects_symbols(self) -> None:
+        syms = {'a.b': CtVar('a.b', 'in'), 'x': CtVar('x', 'in')}
+        a = _test('ka', 'dmy_f', 'src\\a.c', **syms)
+        b = _test('kb', 'dmy_f', 'src\\b.c', **syms)
+        got = match([_row(2, 'dmy_f', 'x', 'in', file='a.c'), _row(3, 'dmy_f', 'a.b', 'out')], [a, b])
+        self.assertEqual(got.skips, [Skip(3, 'dmy_f', 'a.b', R_MULTI)])
+        self.assertEqual(got.released, {})
+
+    def test_released_counts_variables(self) -> None:
+        t = _test('k', 'dmy_f', **{n: CtVar(n, 'in') for n in ('a.b', 'a.d', 'x')})
+        got = match([_row(2, 'dmy_f', 'x', 'in')], [t])
+        self.assertEqual((got.released, got.released_vars), ({'k': ['a.b', 'a.d']}, 1))
 
 
 if __name__ == '__main__':

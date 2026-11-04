@@ -122,35 +122,26 @@ def _symbol_columns(header: List[str]) -> Dict[str, List[Tuple[int, str]]]:
     return columns
 
 
-def _variables(columns: Mapping[str, List[Tuple[int, str]]],
-               cases: List[List[str]]) -> Dict[str, CtVar]:
+def _symbols(columns: Mapping[str, List[Tuple[int, str]]],
+             cases: List[List[str]]) -> Dict[str, CtVar]:
     """`<input>`은 입력, `<expect>`는 출력 지정이다. 값도 그 두 구역의 칸만 본다.
 
-    구조체·배열 변수의 기호들이 든 구역이 서로 다르면(멤버마다 지정이 다름) 방향은 'mixed'다.
-    목록의 지정 하나가 모든 기호에 같게 들어가야 하므로 'mixed'는 어떤 지정과도 같지 않다.
+    기호(`a.b`, `v[0]`, `returnVar`)마다 하나씩 만든다. 기호가 든 구역이 입력뿐이면 `in`, 기대값뿐이면
+    `out`, 둘 다면 `inout`이다.
     """
-    held: Dict[str, Dict[str, Set[str]]] = {}  # 변수 -> 기호 -> 든 구역(in/out)
+    held: Dict[str, Set[str]] = {}  # 기호 -> 든 구역(in/out)
     cells: Dict[str, List[int]] = {}
-    unsupported: Set[str] = set()
     for section, direction in ((S_INPUT, 'in'), (S_EXPECT, 'out')):
         for column, symbol in columns.get(section, []):
-            name, supported = symbol_variable(symbol)
-            held.setdefault(name, {}).setdefault(symbol, set()).add(direction)
-            cells.setdefault(name, []).append(column)
-            if not supported:
-                unsupported.add(name)
-    variables: Dict[str, CtVar] = {}
-    for name, symbols in held.items():
-        kinds = {frozenset(found) for found in symbols.values()}
-        if len(kinds) > 1:
-            direction = 'mixed'
-        else:
-            found = next(iter(kinds))
-            direction = 'inout' if len(found) > 1 else next(iter(found))
+            held.setdefault(symbol, set()).add(direction)
+            cells.setdefault(symbol, []).append(column)
+    symbols: Dict[str, CtVar] = {}
+    for symbol, found in held.items():
+        direction = 'inout' if len(found) > 1 else next(iter(found))
         has_values = any(column < len(case) and case[column].strip()
-                         for case in cases for column in cells[name])
-        variables[name] = CtVar(name, direction, has_values, name not in unsupported)
-    return variables
+                         for case in cases for column in cells[symbol])
+        symbols[symbol] = CtVar(symbol, direction, has_values, symbol_variable(symbol)[1])
+    return symbols
 
 
 def _utest_function(utest: bytes) -> Optional[str]:
@@ -202,7 +193,7 @@ def _read_test(csv_path: Path, key: str) -> Optional[Tuple[CtTest, bool]]:
     test_name = split_fields(lines[1])[0][len(NAME_PREFIX):].strip()
     cases = [split_fields(line) for line in lines[3:] if line.strip()]
     function, file = _function_and_file(csv_path, test_name)
-    test = CtTest(key, function, file, _variables(_symbol_columns(header), cases))
+    test = CtTest(key, function, file, _symbols(_symbol_columns(header), cases))
     return test, _TEST_NAME.fullmatch(test_name) is None
 
 
@@ -298,8 +289,8 @@ def _new_header(header: List[str],
                 directions: Mapping[str, str]) -> Tuple[List[str], List[Optional[int]]]:
     """고친 머리글과, 새 칸마다 케이스 값을 가져올 원래 칸 번호(없던 칸은 None).
 
-    네 구역의 기호는 변수 이름이 `directions`에 있으면 새 지정대로, 없으면 원래 든 구역 그대로
-    넣는다. 구역 안 순서와 빈 칸은 `_section_cells`를 따른다. 모르는 구역은 칸마다 그대로 둔다.
+    네 구역의 기호는 기호 이름(없으면 그 기호의 변수 이름)이 `directions`에 있으면 새 지정대로, 없으면
+    원래 든 구역 그대로 넣는다. 구역 안 순서와 빈 칸은 `_section_cells`를 따른다. 모르는 구역은 칸마다 그대로 둔다.
     알려진 구역 표시가 되풀이되는 머리글은 받지 않는다(`_repeats_section`).
     """
     blocks = _blocks(header)
@@ -317,7 +308,8 @@ def _new_header(header: List[str],
     members: Dict[str, Set[str]] = {section: set() for section in SECTIONS}
     for symbol in first:
         variable = symbol_variable(symbol)[0]
-        now = _DIRECTION_SECTIONS[directions[variable]] if variable in directions else held[symbol]
+        key = symbol if symbol in directions else variable  # 기호 이름이 변수 이름보다 앞선다
+        now = _DIRECTION_SECTIONS[directions[key]] if key in directions else held[symbol]
         for section in now:
             members[section].add(symbol)
 
@@ -357,9 +349,9 @@ def _new_header(header: List[str],
 def rewrite_csv(text: str, directions: Mapping[str, str], reset_cases: bool) -> str:
     """CT 테스트 데이터 CSV 글의 머리글과 케이스 칸을 `directions`대로 고친다.
 
-    `directions`는 변수 이름 -> 'in'|'out'|'inout'|''(해제)이고 값이 그 밖이면 `ValueError`
-    (`E_DIRECTION`)다. 글에 없는 변수는 무시하고, 목록에 없는 변수의 기호는 구역마다 원래 자리
-    그대로다. 1·2줄, 줄 끝, 마지막 줄 끝의 유무도 그대로다. 머리글보다 넓은 케이스 칸은 고친 줄
+    `directions`는 CT 기호(또는 그 기호의 변수 이름) -> 'in'|'out'|'inout'|''(해제)이고 값이 그 밖이면
+    `ValueError`(`E_DIRECTION`)다. 기호 이름이 변수 이름보다 앞선다. 글에 없는 기호는 무시하고, 없는
+    기호는 구역마다 원래 자리 그대로다. 1·2줄, 줄 끝, 마지막 줄 끝의 유무도 그대로다. 머리글보다 넓은 케이스 칸은 고친 줄
     뒤에 붙여 둔다. `reset_cases`면 케이스를 지우고 번호 `1`, 이름 `""`, 나머지 빈칸인 한 줄만 둔다.
     바꿀 것이 없거나 CT 머리글 꼴이 아니면(구역 표시가 없거나 알려진 구역 표시가 되풀이됨)
     `text`를 그대로 돌려준다.
