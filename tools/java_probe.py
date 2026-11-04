@@ -45,7 +45,7 @@ OPENS = ['java.base/' + p for p in ('java.lang', 'java.lang.reflect', 'java.lang
                                      'java.net', 'java.io', 'java.nio', 'java.time', 'sun.nio.ch')]
 DUMP = 'ct_java_probe.txt'
 E_ARGS = '[ERROR] 폴더 둘을 받지 못함: todo.bat 26으로 돌리기'
-E_HOME = '[ERROR] CT_HOME이 없거나 폴더가 아님: ct.bat selfcheck로 CT_HOME 확인'
+E_HOME = '[ERROR] CT 설치 폴더를 받지 못함: todo.bat 26을 다시 돌리고 물으면 CT 설치 폴더를 끌어다 놓기'
 E_ONE = '[ERROR] {} 폴더의 dmy_carry 테스트 .utest가 {}개: todo.md 24절대로 내보낸 폴더를 그대로 두기'
 
 Runner = Callable[[List[str]], Tuple[int, str, str]]

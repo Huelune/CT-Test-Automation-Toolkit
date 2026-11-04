@@ -21,15 +21,21 @@ from typing import List, Tuple
 
 ROOT = Path(__file__).resolve().parents[1]
 LIST = '<목록>'  # 사용자가 창에 끌어다 놓은 목록 경로가 들어갈 자리
+# 이 표시가 든 절은 CT 설치 폴더가 필요하다. 표시는 인수에서 빼고 자식에게 환경 변수 CT_HOME으로 넘긴다.
+# CT_HOME은 처음 준비 때 명령 창에서 set으로만 넣어 todo.bat에는 없다(2026-11-04 26절). 그래서 없으면 창에 끌어다
+# 놓게 하고, 받은 경로를 커밋하지 않는 result 폴더에 기억해 다음부터는 묻지 않는다.
+CT = '<CT 폴더>'
+CT_SAVED = ROOT / 'result' / 'ct_home.txt'
 
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
 SECTIONS = {
     '26': ('CT에 든 Java로 .utest를 읽을 수 있는지',
-           ['tools/java_probe.py', 'C:/ctsample/out/17', 'C:/ctsample/out/18']),
+           ['tools/java_probe.py', 'C:/ctsample/out/17', 'C:/ctsample/out/18', CT]),
 }
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
 E_NO_LIST = '목록 경로가 비었음: todo.bat을 다시 열고 목록 파일을 창에 끌어다 놓은 뒤 Enter'
+E_NO_CT = 'CT 설치 폴더가 아님: todo.bat을 다시 열고 csc.exe가 있는 CT 설치 폴더를 창에 끌어다 놓은 뒤 Enter'
 W_PULL = '[WARN] git pull 실패: 이전 코드로 돈다. 네트워크와 로컬 변경을 확인하고 다시 열기'
 ERR_NAME = 'ct_todo_error.txt'
 E_CRASH = '[ERROR] 예외로 멈춤({}): 이 화면을 보내 주기. 원문은 %TEMP%\\' + ERR_NAME + '(밖으로 보내지 않기)'
@@ -70,6 +76,29 @@ def run_child(args: List[str], cwd: str, env: dict) -> Tuple[int, str]:
     return proc.returncode, proc.stderr.decode('utf-8', 'replace')
 
 
+def _is_ct(folder: Path) -> bool:
+    return folder.is_dir() and ((folder / 'csc.exe').is_file() or (folder / 'plugins').is_dir())
+
+
+def ct_home(ask=input) -> str:
+    """CT 설치 폴더. 환경 변수 CT_HOME, 기억해 둔 폴더, 창에 끌어다 놓은 폴더(파일이면 그 폴더) 차례. 못 찾으면 ''."""
+    for text in (os.environ.get('CT_HOME', ''), CT_SAVED.read_text(encoding='utf-8') if CT_SAVED.is_file() else ''):
+        path = clean_path(text)
+        if path and _is_ct(Path(path)):
+            return path
+    path = clean_path(ask('CT 설치 폴더(csc.exe가 있는 폴더)를 이 창에 끌어다 놓고 Enter: '))
+    if path and Path(path).is_file():
+        path = str(Path(path).parent)
+    if not path or not _is_ct(Path(path)):
+        return ''
+    try:
+        CT_SAVED.parent.mkdir(parents=True, exist_ok=True)
+        CT_SAVED.write_text(path, encoding='utf-8')
+    except OSError:
+        pass  # 기억하지 못해도 이번 실행은 한다
+    return path
+
+
 def clear() -> None:
     # cls는 cmd 내장 명령이라 셸이 필요하다. 고정 문자열만 넘긴다.
     os.system('cls' if os.name == 'nt' else 'clear')
@@ -90,17 +119,26 @@ def main(ask=input, run=run_child, clear_screen=clear) -> int:
             print(E_NO_LIST)
             return 2
         args = [path if a == LIST else a for a in args]
-    return run_toolkit('todo.md {}절: {}'.format(number, title), args, run, clear_screen)
+    env = child_env()
+    if CT in args:
+        home = ct_home(ask)
+        if not home:
+            clear_screen()  # 끌어다 놓은 경로가 입력 줄에 남아 있다
+            print(E_NO_CT)
+            return 2
+        env['CT_HOME'] = home
+        args = [a for a in args if a != CT]
+    return run_toolkit('todo.md {}절: {}'.format(number, title), args, run, clear_screen, env)
 
 
-def run_toolkit(title: str, args: List[str], run=run_child, clear_screen=clear) -> int:
+def run_toolkit(title: str, args: List[str], run=run_child, clear_screen=clear, env=None) -> int:
     """화면을 지우고 제목을 찍은 뒤 툴킷 Python을 돌린다. `io_run.py`도 쓴다."""
     clear_screen()
     print(title)
     if os.environ.get('TODO_PULL') == 'fail':
         print(W_PULL)
     sys.stdout.flush()  # 확인 스크립트 출력보다 먼저 찍히게
-    code, stderr = run([sys.executable] + args, cwd=str(ROOT), env=child_env())
+    code, stderr = run([sys.executable] + args, cwd=str(ROOT), env=env if env is not None else child_env())
     if stderr.strip():
         (Path(tempfile.gettempdir()) / ERR_NAME).write_text(stderr, encoding='utf-8')
         print(E_CRASH.format(error_kind(stderr)) if code else W_STDERR.format(warning_kinds(stderr)))

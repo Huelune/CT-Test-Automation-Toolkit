@@ -21,10 +21,11 @@ todo_run = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(todo_run)
 
 # 실제 절은 todo.md를 처리하면서 바뀌므로, 실행 경로는 지어낸 절 둘로 본다.
-PLAIN, LISTED = '91', '92'
+PLAIN, LISTED, NEEDS_CT = '91', '92', '93'
 FAKE_SECTIONS = {
     PLAIN: ('견본 확인', ['tools/todo_run.py']),
     LISTED: ('목록 확인', ['-m', 'ct_toolkit', 'io-apply', '--list', todo_run.LIST]),
+    NEEDS_CT: ('CT 확인', ['tools/todo_run.py', 'x', todo_run.CT]),
 }
 
 
@@ -127,6 +128,47 @@ class MainTest(unittest.TestCase):
         text = 'C:\\secret\\a.py:1: UserWarning: x\nb.py:2: DeprecationWarning: secret\n'
         self.assertEqual(todo_run.warning_kinds(text), 'DeprecationWarning, UserWarning')
         self.assertEqual(todo_run.warning_kinds('secret\n'), '종류 모름')
+
+    def _ct_case(self, answers, env_home='', saved=None):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        home = Path(tmp.name) / 'secret_ct'
+        home.mkdir()
+        (home / 'csc.exe').write_bytes(b'')
+        saved_path = Path(tmp.name) / 'result' / 'ct_home.txt'
+        if saved is not None:
+            saved_path.parent.mkdir()
+            saved_path.write_text(saved.format(home=home), encoding='utf-8')
+        answers = [a.format(home=home) for a in answers]
+        with mock.patch.object(todo_run, 'CT_SAVED', saved_path), \
+                mock.patch.dict(os.environ, {'CT_HOME': env_home.format(home=home)}):
+            result = _main(answers)
+        return result, home, saved_path
+
+    def test_ct_section_asks_for_folder_once_and_remembers_it(self) -> None:
+        (code, screen, calls, cleared), home, saved = self._ct_case([NEEDS_CT, '"{home}" '])
+        self.assertEqual(code, 0)
+        args, _, env = calls[0]
+        self.assertEqual(args[1:], ['tools/todo_run.py', 'x'])
+        self.assertEqual(env['CT_HOME'], str(home))
+        self.assertEqual(saved.read_text(encoding='utf-8'), str(home))
+        self.assertNotIn('secret', screen.split('todo.md')[1])
+        (code, _, calls, _), _, _ = self._ct_case([NEEDS_CT], saved='{home}')
+        self.assertEqual((code, calls[0][2]['CT_HOME'].endswith('secret_ct')), (0, True))
+
+    def test_ct_section_uses_env_and_accepts_a_dropped_file(self) -> None:
+        (code, _, calls, _), home, _ = self._ct_case([NEEDS_CT], env_home='{home}')
+        self.assertEqual(calls[0][2]['CT_HOME'], str(home))
+        (code, _, calls, _), home, _ = self._ct_case([NEEDS_CT, '{home}\\csc.exe'])
+        self.assertEqual(calls[0][2]['CT_HOME'], str(home))
+
+    def test_ct_section_rejects_other_folder_and_clears_the_path(self) -> None:
+        (code, screen, calls, cleared), _, saved = self._ct_case([NEEDS_CT, 'C:\\secret_nowhere'])
+        self.assertEqual(code, 2)
+        self.assertEqual(calls, [])
+        self.assertEqual(cleared, 1)
+        self.assertIn(todo_run.E_NO_CT, screen)
+        self.assertFalse(saved.exists())
 
     def test_failed_pull_is_warned_after_clearing(self) -> None:
         _, screen, _, _ = _main([PLAIN], pull='fail')
