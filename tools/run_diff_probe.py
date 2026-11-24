@@ -15,6 +15,7 @@ import os
 import re
 import sys
 import time
+import unicodedata
 import zipfile
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
@@ -173,14 +174,33 @@ def _n(count: Optional[int]) -> str:
     return '-' if count is None else '{}/{}'.format(count, len(NAMES))
 
 
-def _fit(prefix: str, path: str, suffix: str = '') -> str:
-    """줄이 WIDTH를 넘으면 경로 앞쪽을 …로 줄여 파일 이름을 남긴다."""
-    room = WIDTH - len(prefix) - len(suffix)
-    return prefix + (path if len(path) <= room else '…' + path[-(room - 1):]) + suffix
+def dwidth(text: str) -> int:
+    """cmd 창(한글 글꼴)에서 차지하는 칸 수: 전각·모호한 너비 글자는 2칸."""
+    return sum(2 if unicodedata.east_asian_width(c) in 'WFA' else 1 for c in text)
 
 
-def _entry(path: str, status: str, before: Snap, after: Snap, roots: List[Tuple[str, Path]]) -> Dict[str, Any]:
-    root, rel = locate(path, roots)
+def _fit(prefix: str, path: str, suffix: str = '', keep: str = '') -> str:
+    """줄이 WIDTH칸을 넘으면 `path` 앞쪽을 …로 줄여 파일 이름을 남긴다. `keep`(뿌리 이름)은 앞에 고정."""
+    room = WIDTH - dwidth(prefix + keep + suffix)
+    if dwidth(path) > room:
+        cut = 0
+        while cut < len(path) and dwidth('…' + path[cut:]) > room:
+            cut += 1
+        path = '…' + path[cut:]
+    return prefix + keep + path + suffix
+
+
+def _classify(key: str, real_roots: List[Tuple[str, str]]) -> Tuple[str, str]:
+    """snapshot 키(이미 realpath)를 문자열 앞부분으로 가장 안쪽 뿌리에 넣는다. 어느 뿌리에도 없으면 ('?', 키)."""
+    best: Optional[Tuple[str, str]] = None
+    for name, r in real_roots:
+        if key.startswith(r + os.sep) and (best is None or len(r) > len(best[1])):
+            best = (name, r)
+    return ('?', key) if best is None else (best[0], key[len(best[1]) + 1:])
+
+
+def _entry(path: str, status: str, before: Snap, after: Snap, real_roots: List[Tuple[str, str]]) -> Dict[str, Any]:
+    root, rel = _classify(path, real_roots)
     removed = status == 'removed'
     head = b''
     if not removed:
@@ -190,17 +210,18 @@ def _entry(path: str, status: str, before: Snap, after: Snap, roots: List[Tuple[
         except OSError:
             pass
     ct = root in ('WS', 'CT') or any(k in rel.lower() for k in ('codescroll', 'suresoft'))
+    k = '-' if removed or not head else kind(head)
     return {'path': path, 'root': root, 'rel': rel, 'status': status, 'size': (before if removed else after)[path][0],
-            'kind': '-' if removed or not head else kind(head), 'head': head.hex(),
-            'names': None if removed else names_found(Path(path)), 'ct': ct, 'reopen': '-'}
+            'kind': k, 'head': head.hex(), 'names': None if removed else names_found(Path(path)), 'ct': ct,
+            'reopen': '-', 'zip': zip_entries(Path(path)) if k == 'zip' else []}
 
 
 def _row(e: Dict[str, Any]) -> str:
     hexa = ' '.join('{:02x}'.format(b) for b in bytes.fromhex(e['head'])[:8]) or '-'
-    shown = '?' if e['root'] == '?' else e['root'] + '\\' + mask_path(e['rel'])
+    keep, shown = ('', '?') if e['root'] == '?' else (e['root'] + '\\', mask_path(e['rel']))
     prefix = '{:<2} {:<4} {:>11} {:<8} {:<23}  {:<4}'.format(
         e['label'], e['reopen'], e['size'], e['kind'], hexa, _n(e['names']))
-    return _fit(prefix + ' ', shown)
+    return _fit(prefix + ' ', shown, keep=keep)
 
 
 def summary_lines(counts: Dict[str, int], bad: int, secs: int, has_meta: bool, entries: List[Dict[str, Any]],
@@ -261,6 +282,7 @@ def main(argv: Sequence[str], ask: Callable[[str], str] = input, clear: Callable
         if value and Path(value).is_dir():
             roots.append((name, Path(value)))
     dirs = [r for _, r in roots]
+    real_roots = [(n, os.path.realpath(str(r))) for n, r in roots]
 
     def scan() -> Tuple[Snap, int, float]:
         print(M_SCAN)
@@ -271,7 +293,7 @@ def main(argv: Sequence[str], ask: Callable[[str], str] = input, clear: Callable
     ask(P_RUN)
     after, bad2, t2 = scan()
     delta = diff(before, after)
-    entries = [dict(_entry(k, st, before, after, roots), label=label) for st, label in STATUS for k in delta[st]]
+    entries = [dict(_entry(k, st, before, after, real_roots), label=label) for st, label in STATUS for k in delta[st]]
     csd_text = _clean(ask(P_CSD))
     clear()
     csd = None
@@ -297,14 +319,16 @@ def main(argv: Sequence[str], ask: Callable[[str], str] = input, clear: Callable
 
     counts = {name: 0 for name, _ in roots}
     for k in before:
-        counts[locate(k, roots)[0]] += 1
+        name = _classify(k, real_roots)[0]
+        if name in counts:
+            counts[name] += 1
     json_ok = True
     try:
         target = out_dir if out_dir is not None else paths.result_dir() / 'branch_probe'
         target.mkdir(parents=True, exist_ok=True)
         data = {'roots': {n: os.path.realpath(str(r)) for n, r in roots}, 'files': entries, 'csd': csd,
                 'reopen_new': new_after}
-        (target / 'run_diff.json').write_text(json.dumps(data, ensure_ascii=False, indent=1), encoding='utf-8')
+        (target / 'run_diff.json').write_text(json.dumps(data, indent=1), encoding='utf-8')
     except OSError:
         json_ok = False
     clear()

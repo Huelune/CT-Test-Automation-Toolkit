@@ -188,10 +188,11 @@ class MainTest(unittest.TestCase):
     def check_screen(self, text: str) -> None:
         self.assertNotIn('secret', text)
         self.assertNotIn(str(self.tmp), text)
+        self.assertNotIn(os.path.realpath(str(self.tmp)), text)
         lines = text.splitlines()
         self.assertLessEqual(len(lines), 40)
         for line in lines:
-            self.assertLessEqual(len(line), p.WIDTH, line)
+            self.assertLessEqual(p.dwidth(line), p.WIDTH, line)
 
     def test_main_flow(self) -> None:
         run1 = self.ws / '.metadata' / '.plugins' / 'com.codescroll.ut.core' / 'secret_dir' / 'run1.dat'
@@ -199,7 +200,8 @@ class MainTest(unittest.TestCase):
         def run():
             run1.parent.mkdir(parents=True)
             run1.write_bytes(b'..dmy_case_a..')
-            (self.temp / 'secret_tmp.bin').write_bytes(b'tmp')
+            with zipfile.ZipFile(self.temp / 'secret_tmp.bin', 'w') as zf:
+                zf.writestr('inner.xml', '<r/>')
             (self.ws / '.metadata' / '.log').write_bytes(b'longer log')
         csd = self.outside / 'x.csd'
         with zipfile.ZipFile(csd, 'w') as zf:
@@ -213,6 +215,8 @@ class MainTest(unittest.TestCase):
         self.assertTrue(text[self.clears[-1]:].startswith('28절 결과'))
         data = json.loads((self.out / 'run_diff.json').read_text(encoding='utf-8'))
         self.assertIn(os.path.realpath(str(run1)), [x['path'] for x in data['files']])
+        z = [x for x in data['files'] if x['path'].endswith('secret_tmp.bin')][0]
+        self.assertEqual(z['zip'][0][0], 'inner.xml')
 
     def test_main_skips_csd(self) -> None:
         code, text = self.run_main(lambda: (self.temp / 'a.bin').write_bytes(b'1'), '')
@@ -241,6 +245,28 @@ class MainTest(unittest.TestCase):
         self.assertEqual(sum(1 for line in lines if line.startswith('새 ')), 16)
         self.assertIn('나머지 14은 json에만', text)
         self.check_screen(text)
+
+    def test_main_file_outside_all_roots(self) -> None:
+        ext = self.outside / 'secret_ext.bin'
+        ext.write_bytes(b'abc')
+        real, calls = p.snapshot, []
+
+        def fake(roots):
+            snap, bad = real(roots)
+            calls.append(1)
+            snap[str(ext)] = (3, len(calls))  # 두 번째 목록부터 값이 달라 '바뀜'으로 잡힌다
+            return snap, bad
+        with mock.patch.object(p, 'snapshot', fake):
+            code, text = self.run_main()
+        self.assertEqual(code, 0, text)
+        self.check_screen(text)
+        self.assertTrue((self.out / 'run_diff.json').is_file())
+
+    def test_fit_keeps_root_and_width(self) -> None:
+        line = p._fit('상태 ', '가' * 80 + 'file.dat', ' 이름 1/5', keep='WS\\')
+        self.assertLessEqual(p.dwidth(line), p.WIDTH)
+        self.assertTrue(line.startswith('상태 WS\\…'))
+        self.assertIn('file.dat', line)
 
 
 if __name__ == '__main__':
