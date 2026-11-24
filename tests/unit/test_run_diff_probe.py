@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import contextlib
+import io
+import json
 import os
 import sys
 import tempfile
@@ -144,6 +147,100 @@ class PartsTest(unittest.TestCase):
         notzip = self.dir / 'n.txt'
         notzip.write_text('hello')
         self.assertEqual(p.zip_entries(notzip), [])
+
+
+class MainTest(unittest.TestCase):
+    def setUp(self) -> None:
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.tmp = Path(tmp.name)
+        self.ws = self.tmp / 'secret_user' / 'ws'
+        self.ct = self.tmp / 'ct'
+        self.local = self.tmp / 'local'
+        self.temp = self.local / 'Temp'
+        self.roam = self.tmp / 'roam'
+        self.out = self.tmp / 'out'
+        self.outside = self.tmp / 'outside'
+        for d in (self.ws / '.metadata', self.ct, self.temp, self.roam, self.outside):
+            d.mkdir(parents=True)
+        (self.ws / '.metadata' / '.log').write_bytes(b'x')
+        self.env = {'CT_HOME': str(self.ct), 'TEMP': str(self.temp), 'APPDATA': str(self.roam),
+                    'LOCALAPPDATA': str(self.local)}
+        self.clears: list = []
+
+    def run_main(self, run=None, csd='', reopen=None, ws=None, env=None):
+        def ask(prompt):
+            if prompt == p.P_WS:
+                return '"{}"'.format(self.ws if ws is None else ws)
+            if prompt == p.P_RUN:
+                run and run()
+            elif prompt == p.P_CSD:
+                return csd
+            elif prompt == p.P_REOPEN:
+                reopen and reopen()
+            return ''
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = p.main([], ask=ask, clear=lambda: self.clears.append(buf.tell()),
+                          environ=self.env if env is None else env, out_dir=self.out)
+        return code, buf.getvalue()
+
+    def check_screen(self, text: str) -> None:
+        self.assertNotIn('secret', text)
+        self.assertNotIn(str(self.tmp), text)
+        lines = text.splitlines()
+        self.assertLessEqual(len(lines), 40)
+        for line in lines:
+            self.assertLessEqual(len(line), p.WIDTH, line)
+
+    def test_main_flow(self) -> None:
+        run1 = self.ws / '.metadata' / '.plugins' / 'com.codescroll.ut.core' / 'secret_dir' / 'run1.dat'
+
+        def run():
+            run1.parent.mkdir(parents=True)
+            run1.write_bytes(b'..dmy_case_a..')
+            (self.temp / 'secret_tmp.bin').write_bytes(b'tmp')
+            (self.ws / '.metadata' / '.log').write_bytes(b'longer log')
+        csd = self.outside / 'x.csd'
+        with zipfile.ZipFile(csd, 'w') as zf:
+            zf.writestr('secret_e.xml', '<r>'.encode('utf-16-le') + 'dmy_case_b'.encode('utf-16-le'))
+        code, text = self.run_main(run, str(csd), lambda: run1.unlink())
+        self.assertEqual(code, 0, text)
+        for want in ('새로 2', '바뀜 1', '.csd: 크기', '이름 1/5', '없음 1', 'aaa9.dat'):
+            self.assertIn(want, text)
+        self.check_screen(text)
+        self.assertEqual(len(self.clears), 3)
+        self.assertTrue(text[self.clears[-1]:].startswith('28절 결과'))
+        data = json.loads((self.out / 'run_diff.json').read_text(encoding='utf-8'))
+        self.assertIn(os.path.realpath(str(run1)), [x['path'] for x in data['files']])
+
+    def test_main_skips_csd(self) -> None:
+        code, text = self.run_main(lambda: (self.temp / 'a.bin').write_bytes(b'1'), '')
+        self.assertIn('.csd: 건너뜀', text)
+        self.assertEqual(code, 0)
+        self.check_screen(text)
+
+    def test_main_no_change(self) -> None:
+        code, text = self.run_main()
+        self.assertIn(p.W_NONE, text)
+        self.assertEqual(code, 1)
+        self.check_screen(text)
+
+    def test_main_bad_inputs(self) -> None:
+        code, text = self.run_main(env={})
+        self.assertEqual((code, text.strip()), (2, p.E_HOME))
+        code, text = self.run_main(ws=self.tmp / 'missing')
+        self.assertEqual((code, text.strip()), (2, p.E_WS))
+
+    def test_main_many_files(self) -> None:
+        def run():
+            for i in range(30):
+                (self.ct / 'f{}.bin'.format(i)).write_bytes(b'x' * (i + 1))
+        code, text = self.run_main(run)
+        lines = text.splitlines()
+        self.assertEqual(sum(1 for line in lines if line.startswith('새 ')), 16)
+        self.assertIn('나머지 14은 json에만', text)
+        self.check_screen(text)
 
 
 if __name__ == '__main__':
