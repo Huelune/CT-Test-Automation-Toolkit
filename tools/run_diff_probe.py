@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import stat
 import sys
 import time
 import unicodedata
@@ -27,6 +28,17 @@ from utest_probe import shape
 NAMES: Tuple[str, ...] = ('dmy_branch', 'dmy_case_a', 'dmy_case_b', 'dmy_case_c', 'dmy_case_d')
 Snap = Dict[str, Tuple[int, int]]  # 절대 경로 -> (크기, st_mtime_ns)
 BIG = 64 << 20
+SAMPLE_DIR = Path('C:/ctsample')  # 견본 프로젝트 폴더(todo.md 1번 단계가 만든다). 테스트가 바꾼다
+HEX_KINDS = ('zip', 'gzip', 'sqlite', 'h2', 'java-ser', 'fst?', 'binary')  # 이 꼴만 앞 8바이트를 찍는다(글자 내용은 안 찍음)
+
+
+def _is_link(path: str) -> bool:
+    try:
+        st = os.lstat(path)
+    except OSError:
+        return False
+    attrs = getattr(st, 'st_file_attributes', None)  # 윈도우의 junction은 symlink가 아니라 reparse point
+    return bool(attrs & stat.FILE_ATTRIBUTE_REPARSE_POINT) if attrs is not None else stat.S_ISLNK(st.st_mode)
 
 
 def snapshot(roots: Sequence[Path]) -> Tuple[Snap, int]:
@@ -38,7 +50,8 @@ def snapshot(roots: Sequence[Path]) -> Tuple[Snap, int]:
         nonlocal bad
         bad += 1
     for root in roots:  # realpath: 8.3 짧은 이름·대소문자가 달라도 같은 파일은 같은 키
-        for top, _dirs, files in os.walk(os.path.realpath(str(root)), onerror=onerror):
+        for top, dirs, files in os.walk(os.path.realpath(str(root)), onerror=onerror):
+            dirs[:] = [d for d in dirs if not _is_link(os.path.join(top, d))]  # 바깥으로 새는 링크는 안 따라간다
             for name in files:
                 full = os.path.join(top, name)
                 try:
@@ -117,8 +130,7 @@ _KEEP_PART = re.compile(r'dmy_\w*|ctsample|\.[A-Za-z]\w*|(?:com|org|net|java|jav
 def mask_path(rel: str) -> str:
     out = []
     for part in re.split(r'[\\/]', rel):
-        low = part.lower()
-        if part.isascii() and (_KEEP_PART.fullmatch(part) or 'codescroll' in low or 'suresoft' in low):
+        if part.isascii() and _KEEP_PART.fullmatch(part):
             out.append(part)
             continue
         ext = re.search(r'\.[A-Za-z0-9]{1,8}$', part)
@@ -132,7 +144,7 @@ def zip_entries(path: Path) -> List[Tuple[str, int, str, Optional[int]]]:
     rows: List[Tuple[str, int, str, Optional[int]]] = []
     try:
         zf = zipfile.ZipFile(str(path))
-    except (zipfile.BadZipFile, OSError):
+    except Exception:  # 깨진 zip, UTF-8 표시된 이름이 깨진 zip 등: 못 열면 []
         return []
     with zf:
         for info in zf.infolist():
@@ -154,12 +166,26 @@ W_META = '[WARN] .metadata가 없음: 끌어다 놓은 폴더가 CT 작업 공�
 W_JSON = '[WARN] run_diff.json을 쓰지 못함: result 폴더 쓰기 권한과 빈 공간을 확인하고 다시 돌리기'
 P_WS = '견본 작업 공간 폴더(ctsample 프로젝트가 든 CT 작업 공간)를 이 창에 끌어다 놓고 Enter: '
 P_RUN = 'CT에서 dmy_branch 테스트를 실행한 뒤 이 창에서 Enter: '
-P_CSD = 'CT [내보내기] > [커버리지 내보내기]로 만든 .csd 파일을 끌어다 놓고 Enter(없으면 그냥 Enter): '
-P_REOPEN = 'CT를 닫았다 다시 열고, 케이스 하나를 골라 소스 편집기에 참·거짓 표시가 보이면 이 창에서 Enter: '
+P_CSD = 'CT [내보내기] 마법사에서 [커버리지] > [커버리지 내보내기]로 만든 .csd 파일을 끌어다 놓고 Enter(없으면 그냥 Enter): '
+P_REOPEN = 'CT를 닫았다 다시 열고 케이스 하나를 고르세요. 소스 편집기에 참·거짓 표시가 보이면 y, 안 보이면 n을 넣고 Enter: '
 M_SCAN = '파일 목록을 찍는 중(몇 분 걸릴 수 있음)…'
 MAX_ROWS = 16
 MAX_ENTRIES = 8
 STATUS = (('new', '새'), ('changed', '바뀜'), ('removed', '지움'))
+MARKS = {'y': '보임', 'n': '안 보임'}
+
+
+def _ask(prompt: str) -> str:
+    """물음을 표준 출력에 찍고 답을 받는다. `input(prompt)`는 콘솔에서 표준 오류에 써서 todo_run이 가려 버린다."""
+    if os.name == 'nt':  # 목록을 찍는 몇 분 동안 눌린 키가 다음 물음에 미리 답하지 않게 비운다
+        try:
+            import msvcrt
+            while msvcrt.kbhit():
+                msvcrt.getwch()
+        except Exception:
+            pass
+    print(prompt, end='', flush=True)
+    return input()
 
 
 def _clear() -> None:
@@ -194,14 +220,15 @@ def _classify(key: str, real_roots: List[Tuple[str, str]]) -> Tuple[str, str]:
     """snapshot 키(이미 realpath)를 문자열 앞부분으로 가장 안쪽 뿌리에 넣는다. 어느 뿌리에도 없으면 ('?', 키)."""
     best: Optional[Tuple[str, str]] = None
     for name, r in real_roots:
-        if key.startswith(r + os.sep) and (best is None or len(r) > len(best[1])):
-            best = (name, r)
-    return ('?', key) if best is None else (best[0], key[len(best[1]) + 1:])
+        pre = r.rstrip(os.sep) + os.sep  # 드라이브 뿌리(C:\\)도 같은 모양
+        if key.startswith(pre) and (best is None or len(pre) > len(best[1])):
+            best = (name, pre)
+    return ('?', key) if best is None else (best[0], key[len(best[1]):])
 
 
 def _entry(path: str, status: str, before: Snap, after: Snap, real_roots: List[Tuple[str, str]]) -> Dict[str, Any]:
     root, rel = _classify(path, real_roots)
-    removed = status == 'removed'
+    removed = path not in after  # 지워졌거나(지움), 다시 열 때 사라진 것(닫음)
     head = b''
     if not removed:
         try:
@@ -217,7 +244,7 @@ def _entry(path: str, status: str, before: Snap, after: Snap, real_roots: List[T
 
 
 def _row(e: Dict[str, Any]) -> str:
-    hexa = ' '.join('{:02x}'.format(b) for b in bytes.fromhex(e['head'])[:8]) or '-'
+    hexa = ' '.join('{:02x}'.format(b) for b in bytes.fromhex(e['head'])[:8]) if e['kind'] in HEX_KINDS else '-'
     keep, shown = ('', '?') if e['root'] == '?' else (e['root'] + '\\', mask_path(e['rel']))
     prefix = '{:<2} {:<4} {:>11} {:<8} {:<23}  {:<4}'.format(
         e['label'], e['reopen'], e['size'], e['kind'], hexa, _n(e['names']))
@@ -225,23 +252,32 @@ def _row(e: Dict[str, Any]) -> str:
 
 
 def summary_lines(counts: Dict[str, int], bad: int, secs: int, has_meta: bool, entries: List[Dict[str, Any]],
-                  csd: Optional[Dict[str, Any]], reopen_new: int, json_ok: bool) -> List[str]:
+                  csd: Optional[Dict[str, Any]], reopen_new: int, json_ok: bool, seen: Optional[str] = None) -> List[str]:
     """화면에 찍을 줄. 개수, 정해 둔 문구, 가린 상대 경로, 꼴 이름만 쓴다."""
     out = ['28절 결과: 실행 전후 파일 비교']
-    out.append('목록: {}개, 못 읽은 폴더 {}, 목록 찍기 3번 {}초'.format(
-        ', '.join('{} {}'.format(k, v) for k, v in counts.items()), bad, secs))
+    line = '목록:'
+    for k, v in counts.items():  # 폴더가 많고 수가 커도 줄이 WIDTH를 넘지 않게 나눈다
+        item = ' {} {}개,'.format(k, v)
+        if dwidth(line + item) > WIDTH:
+            out.append(line)
+            line = '     '
+        line += item
+    out.append(line.rstrip(','))
+    out.append('못 읽은 폴더 {}, 목록 찍기 3번 {}초'.format(bad, secs))
     if not has_meta:
         out.append(W_META)
-    if not entries:
+    run = [e for e in entries if e['status'] != 'closed']
+    if not run:
         out.append(W_NONE)
     else:
-        per = {k: sum(1 for e in entries if e['status'] == k) for k, _ in STATUS}
-        by_root = ', '.join('{} {}'.format(r, sum(1 for e in entries if e['root'] == r)) for r in counts)
+        per = {k: sum(1 for e in run if e['status'] == k) for k, _ in STATUS}
+        by_root = ', '.join('{} {}'.format(r, sum(1 for e in run if e['root'] == r)) for r in counts)
         out.append('실행 뒤: 새로 {}, 바뀜 {}, 지워짐 {} ({})'.format(per['new'], per['changed'], per['removed'], by_root))
+    if entries:  # 실행 때 바뀐 것과 CT를 닫을 때 바뀐 것을 한 표에 둔다
         hit = [e for e in entries if e['names']]
         rows = sorted(hit + [e for e in entries if not e['names'] and e['ct']],
                       key=lambda e: (-(e['names'] or 0), not e['ct'], -e['size']))[:MAX_ROWS]
-        out.append('견본 이름이 든 것 {}, CT 관련 경로 {}, 나머지 {}은 json에만'.format(
+        out.append('견본 이름이 든 것 {}, CT 관련 경로 {}, 나머지 {}개는 json에만'.format(
             len(hit), sum(1 for e in entries if not e['names'] and e['ct']), len(entries) - len(rows)))
         if rows:
             out.append('상태 다시연뒤      크기 꼴       앞 8바이트              이름 경로')
@@ -256,15 +292,16 @@ def summary_lines(counts: Dict[str, int], bad: int, secs: int, has_meta: bool, e
             csd['size'], csd['kind'], _n(csd['names']), ', 항목 {}개'.format(len(csd['entries'])) if zipped else ''))
         for name, size, k, n in csd['entries'][:MAX_ENTRIES]:
             out.append(_fit('  항목 ', mask_path(name), ' {:>9} {:<8} 이름 {}'.format(size, k, _n(n))))
-    total = sum(1 for e in entries if e['status'] != 'removed')
+    total = sum(1 for e in entries if e['status'] in ('new', 'changed'))
     reopen = {k: sum(1 for e in entries if e['reopen'] == k) for k in ('남음', '바뀜', '없음')}
     out.append('다시 연 뒤: 실행 때 생기거나 바뀐 {}개 중 남음 {}, 바뀜 {}, 없음 {}, 다시 열며 새로 바뀐 것 {}'.format(
         total, reopen['남음'], reopen['바뀜'], reopen['없음'], reopen_new))
+    out.append('다시 연 뒤 참·거짓 표시: ' + (seen or '답 없음'))
     out.append('자세한 목록: result\\branch_probe\\run_diff.json' if json_ok else W_JSON)
     return out
 
 
-def main(argv: Sequence[str], ask: Callable[[str], str] = input, clear: Callable[[], None] = _clear,
+def main(argv: Sequence[str], ask: Callable[[str], str] = _ask, clear: Callable[[], None] = _clear,
          environ: Optional[Mapping[str, str]] = None, out_dir: Optional[Path] = None) -> int:
     env = os.environ if environ is None else environ
     home = _clean(env.get('CT_HOME', ''))
@@ -273,10 +310,16 @@ def main(argv: Sequence[str], ask: Callable[[str], str] = input, clear: Callable
         return 2
     ws = _clean(ask(P_WS))
     clear()  # 끌어다 놓은 경로가 입력 줄에 남아 있다
+    if ws and Path(ws).is_dir() and not (Path(ws) / '.metadata').is_dir():
+        print(W_META)  # 스캔(몇 분)을 하기 전에 바로잡을 기회를 한 번 준다
+        ws = _clean(ask(P_WS))
+        clear()
     if not ws or not Path(ws).is_dir():
         print(E_WS)
         return 2
     roots: List[Tuple[str, Path]] = [('WS', Path(ws)), ('CT', Path(home))]
+    if SAMPLE_DIR.is_dir():
+        roots.append(('SAMPLE', SAMPLE_DIR))
     for name in ('TEMP', 'APPDATA', 'LOCALAPPDATA'):
         value = _clean(env.get(name, ''))
         if value and Path(value).is_dir():
@@ -303,11 +346,13 @@ def main(argv: Sequence[str], ask: Callable[[str], str] = input, clear: Callable
         try:
             with open(csd_path, 'rb') as fh:
                 head = fh.read(32)
-            csd.update(kind=kind(head), size=csd_path.stat().st_size, names=names_found(csd_path),
-                       head=head.hex(), entries=zip_entries(csd_path) if kind(head) == 'zip' else [])
+            items = zip_entries(csd_path) if kind(head) == 'zip' else []
+            items.sort(key=lambda r: (-(r[3] or 0), -r[1]))  # 견본 이름이 든 항목을 앞으로
+            names = max((r[3] or 0 for r in items), default=None) if items else names_found(csd_path)
+            csd.update(kind=kind(head), size=csd_path.stat().st_size, names=names, head=head.hex(), entries=items)
         except OSError:
             pass
-    ask(P_REOPEN)
+    seen = MARKS.get(_clean(ask(P_REOPEN)).lower())
     reopened, bad3, t3 = scan()
 
     run_keys = set(delta['new']) | set(delta['changed'])
@@ -316,6 +361,7 @@ def main(argv: Sequence[str], ask: Callable[[str], str] = input, clear: Callable
             now = reopened.get(e['path'])
             e['reopen'] = '없음' if now is None else ('남음' if now == after[e['path']] else '바뀜')
     new_after = sorted(k for k in set(after) | set(reopened) if after.get(k) != reopened.get(k) and k not in run_keys)
+    entries += [dict(_entry(k, 'closed', after, reopened, real_roots), label='닫음') for k in new_after]
 
     counts = {name: 0 for name, _ in roots}
     for k in before:
@@ -327,15 +373,15 @@ def main(argv: Sequence[str], ask: Callable[[str], str] = input, clear: Callable
         target = out_dir if out_dir is not None else paths.result_dir() / 'branch_probe'
         target.mkdir(parents=True, exist_ok=True)
         data = {'roots': {n: os.path.realpath(str(r)) for n, r in roots}, 'files': entries, 'csd': csd,
-                'reopen_new': new_after}
+                'reopen_new': new_after, 'marker': seen}
         (target / 'run_diff.json').write_text(json.dumps(data, indent=1), encoding='utf-8')
     except OSError:
         json_ok = False
     clear()
     lines = summary_lines(counts, max(bad1, bad2, bad3), int(round(t1 + t2 + t3)), (Path(ws) / '.metadata').is_dir(),
-                          entries, csd, len(new_after), json_ok)
+                          entries, csd, len(new_after), json_ok, seen)
     print('\n'.join(lines))
-    return 0 if entries else 1
+    return 0 if any(e['status'] != 'closed' for e in entries) else 1
 
 
 if __name__ == '__main__':

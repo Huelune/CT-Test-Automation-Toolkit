@@ -49,6 +49,59 @@ class PartsTest(unittest.TestCase):
         self.assertNotIn('홍', p.mask_path('.홍길동/x.dat'))
         self.assertEqual(p.mask_path('Users\\홍길동\\ctsample\\Run9.bin'), 'Aaaaa\\???\\ctsample\\Aaa9.bin')
 
+    def test_mask_path_drops_product_substring_rule(self) -> None:
+        got = p.mask_path('secret_CodeScroll_prj/x.dat')
+        self.assertNotIn('secret', got)
+        self.assertNotIn('CodeScroll', got)
+        self.assertNotIn('secret', p.mask_path('secret_suresoft/x.dat'))
+
+    def test_classify_drive_root(self) -> None:
+        key = os.sep + 'a' + os.sep + 'b.dat'
+        self.assertEqual(p._classify(key, [('X', os.sep)]), ('X', 'a' + os.sep + 'b.dat'))
+
+    def test_zip_entries_survive_unicode_error(self) -> None:
+        z = self.dir / 'u.zip'
+        z.write_bytes(b'x')
+        err = UnicodeDecodeError('utf-8', b'\xff', 0, 1, 'secret')
+        with mock.patch.object(zipfile, 'ZipFile', side_effect=err):
+            self.assertEqual(p.zip_entries(z), [])
+
+    def test_snapshot_prunes_reparse_dirs(self) -> None:
+        (self.dir / 'junc').mkdir()
+        (self.dir / 'junc' / 'in.txt').write_text('1')
+        (self.dir / 'ok.txt').write_text('2')
+        real = os.lstat
+
+        def fake(path, *a, **k):
+            if str(path).endswith('junc'):
+                return mock.Mock(st_file_attributes=0x400, st_mode=0)
+            return real(path, *a, **k)
+        with mock.patch('run_diff_probe.os.lstat', side_effect=fake):
+            snap, _ = p.snapshot([self.dir])
+        self.assertEqual(list(snap), [str(self.dir / 'ok.txt')])
+
+    def test_summary_wraps_huge_counts(self) -> None:
+        counts = {n: 10 ** 14 for n in ('WS', 'CT', 'SAMPLE', 'TEMP', 'APPDATA', 'LOCALAPPDATA')}
+        lines = p.summary_lines(counts, 10 ** 9, 10 ** 9, True, [], None, 0, True)
+        self.assertLessEqual(len(lines), 40)
+        for line in lines:
+            self.assertLessEqual(p.dwidth(line), p.WIDTH, line)
+
+    def test_ask_prints_prompt_to_stdout(self) -> None:
+        buf = io.StringIO()
+        with mock.patch('builtins.input', return_value='ans') as inp, contextlib.redirect_stdout(buf):
+            self.assertEqual(p._ask('x'), 'ans')
+        inp.assert_called_once_with()
+        self.assertEqual(buf.getvalue(), 'x')
+
+    def test_ask_drains_pending_keys(self) -> None:
+        fake = mock.Mock()
+        fake.kbhit.side_effect = [True, True, False]
+        with mock.patch.object(p.os, 'name', 'nt'), mock.patch.dict(sys.modules, {'msvcrt': fake}), \
+                mock.patch('builtins.input', return_value=''), contextlib.redirect_stdout(io.StringIO()):
+            p._ask('x')
+        self.assertEqual(fake.getwch.call_count, 2)
+
     def test_snapshot_and_diff(self) -> None:
         a, b, c = (self.dir / n for n in ('a.txt', 'b.txt', 'c.txt'))
         a.write_text('1')
@@ -167,10 +220,18 @@ class MainTest(unittest.TestCase):
         self.env = {'CT_HOME': str(self.ct), 'TEMP': str(self.temp), 'APPDATA': str(self.roam),
                     'LOCALAPPDATA': str(self.local)}
         self.clears: list = []
+        self.sample = self.tmp / 'ctsample'  # 실제 샘플 폴더에 기대지 않는다
+        patch = mock.patch.object(p, 'SAMPLE_DIR', self.sample)
+        patch.start()
+        self.addCleanup(patch.stop)
 
-    def run_main(self, run=None, csd='', reopen=None, ws=None, env=None):
+    def run_main(self, run=None, csd='', reopen=None, ws=None, env=None, marker='', ws_answers=None):
+        answers = list(ws_answers) if ws_answers else None
+
         def ask(prompt):
             if prompt == p.P_WS:
+                if answers:
+                    return answers.pop(0)
                 return '"{}"'.format(self.ws if ws is None else ws)
             if prompt == p.P_RUN:
                 run and run()
@@ -178,6 +239,7 @@ class MainTest(unittest.TestCase):
                 return csd
             elif prompt == p.P_REOPEN:
                 reopen and reopen()
+                return marker
             return ''
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
@@ -243,7 +305,7 @@ class MainTest(unittest.TestCase):
         code, text = self.run_main(run)
         lines = text.splitlines()
         self.assertEqual(sum(1 for line in lines if line.startswith('새 ')), 16)
-        self.assertIn('나머지 14은 json에만', text)
+        self.assertIn('나머지 14개는 json에만', text)
         self.check_screen(text)
 
     def test_main_file_outside_all_roots(self) -> None:
@@ -261,6 +323,77 @@ class MainTest(unittest.TestCase):
         self.assertEqual(code, 0, text)
         self.check_screen(text)
         self.assertTrue((self.out / 'run_diff.json').is_file())
+
+    def test_main_asks_workspace_again_without_metadata(self) -> None:
+        nometa = self.tmp / 'secret_plain'
+        nometa.mkdir()
+        run = lambda: (self.temp / 'a.bin').write_bytes(b'1')  # noqa: E731
+        code, text = self.run_main(run, ws_answers=[str(nometa), str(self.ws)])
+        self.assertEqual(code, 0, text)
+        self.assertIn(p.W_META, text[:self.clears[1]])
+        self.assertNotIn(p.W_META, text[self.clears[-1]:])
+        self.check_screen(text)
+        self.clears.clear()
+        code, text = self.run_main(run, ws_answers=[str(nometa), str(nometa)])
+        self.assertEqual(code, 0, text)
+        self.assertIn(p.W_META, text[self.clears[-1]:])
+        code, text = self.run_main(ws_answers=[str(nometa), str(self.tmp / 'missing')])
+        self.assertEqual((code, text.strip().splitlines()[-1]), (2, p.E_WS))
+
+    def test_main_sample_root_and_innermost_workspace(self) -> None:
+        (self.sample / 'src').mkdir(parents=True)
+        (self.sample / 'ws' / '.metadata').mkdir(parents=True)
+
+        def run():
+            (self.sample / 'src' / 'n.c').write_bytes(b'dmy_case_a')
+            (self.sample / 'ws' / '.metadata' / 'n.dat').write_bytes(b'dmy_case_a')
+        code, text = self.run_main(run, ws=self.sample / 'ws')
+        final = text[self.clears[-1]:]
+        self.assertIn('SAMPLE ', final)
+        self.assertIn('SAMPLE\\aaa\\a.c', final)
+        self.assertIn('WS\\.metadata\\a.dat', final)
+        self.check_screen(text)
+
+    def test_main_shows_files_changed_on_close(self) -> None:
+        def reopen():
+            (self.temp / 'closed.dat').write_bytes(b'dmy_case_b')
+        code, text = self.run_main(lambda: (self.temp / 'a.bin').write_bytes(b'1'), reopen=reopen)
+        final = text[self.clears[-1]:]
+        self.assertIn('다시 열며 새로 바뀐 것 1', final)
+        row = [x for x in final.splitlines() if x.startswith('닫음')]
+        self.assertEqual(len(row), 1, final)
+        self.assertIn('1/5', row[0])
+        self.assertIn('견본 이름이 든 것 1, CT 관련 경로 0, 나머지 1개는 json에만', final)
+        data = json.loads((self.out / 'run_diff.json').read_text(encoding='utf-8'))
+        self.assertIn('closed.dat', ' '.join(x['path'] for x in data['files']))
+        self.check_screen(text)
+
+    def test_main_csd_items_ranked_by_names(self) -> None:
+        csd = self.outside / 'x.csd'
+        with zipfile.ZipFile(csd, 'w') as zf:
+            for i in range(10):
+                zf.writestr('secret_{}.xml'.format(i), '<r>dmy_case_a</r>' if i == 9 else '<r/>')
+        code, text = self.run_main(lambda: (self.temp / 'a.bin').write_bytes(b'1'), str(csd))
+        final = text[self.clears[-1]:]
+        self.assertIn('견본 이름 1/5, 항목 10개', final)
+        first = [x for x in final.splitlines() if x.startswith('  항목')][0]
+        self.assertIn('이름 1/5', first)
+        self.check_screen(text)
+
+    def test_main_marker_answer(self) -> None:
+        for answer, want in (('Y ', '보임'), ('n', '안 보임'), ('', '답 없음'), ('몰라', '답 없음')):
+            code, text = self.run_main(lambda: (self.temp / 'a.bin').write_bytes(b'1'), marker=answer)
+            line = [x for x in text.splitlines() if x.startswith('다시 연 뒤 참·거짓')][0]
+            self.assertTrue(line.endswith(': ' + want), line)
+
+    def test_main_hex_only_for_binary_kinds(self) -> None:
+        def run():
+            (self.temp / 'a.txt').write_bytes(b'secretdata dmy_case_a')
+            (self.temp / 'b.bin').write_bytes(bytes(range(40)) + b'dmy_case_a')
+        code, text = self.run_main(run)
+        rows = {('a.txt' if 'a.txt' in x else 'b.bin'): x for x in text.splitlines() if x.startswith('새 ')}
+        self.assertNotIn('73 65 63', rows['a.txt'])
+        self.assertIn('00 01 02 03', rows['b.bin'])
 
     def test_fit_keeps_root_and_width(self) -> None:
         line = p._fit('상태 ', '가' * 80 + 'file.dat', ' 이름 1/5', keep='WS\\')
