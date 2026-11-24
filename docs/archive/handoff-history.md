@@ -280,3 +280,14 @@
   598 → 884. 전역 변수는 `.testCodeStructure.globalVarList.utVarList`에 이름 차례(처음 `dmy_c_direct`, `dmy_c_p` → 뒤 `dmy_c_callee`,
   `dmy_c_direct`, `dmy_c_p`, `dmy_c_ptr`, `dmy_c_unused`). 위치로 비교해 원소가 밀린 차이만 보였다(`isDef`, `isUse`, `typeCode`,
   자식·분할 목록 크기). 26절을 지우고, 변수를 이름으로 짝지어 비교하는 27절을 더했다.
+
+## 2026-11-20 목표를 다시 정하고 TC별 분기 표부터 함
+
+- 사용자가 할 일을 둘로 말했다. 하나는 TC별 분기 표(D1 [T] if (...) 꼴)이고, 하나는 입력·출력 지정이다. 분기 표가 검토자
+  제출물이라 정확해야 하므로 CT가 잰 케이스별 결과로만 채우고 추정으로 채우지 않기로 했다. 분기 표를 먼저 한다.
+- 방법 A(CT가 디스크에 남긴 케이스별 결과를 찾아 읽기)를 골랐다(설계 `docs/design/branch-table.md`, 2026-11-24 승인).
+  실행 전후 파일을 비교하는 `tools/run_diff_probe.py`와 견본 `examples/ct_sample/dmy_branch.example.c`를 만들고 todo.md
+  28절로 서버 PC에 요청했다.
+- todo.md 27절(`.utest` 전역 변수 이름 짝짓기)과 `todo_run.py`의 절을 내렸다. `.utest` 길은 입력·출력 지정을 다시 볼 때
+  이어 간다.
+- 2025.12 매뉴얼의 CLI 키를 다시 확인했다. 입력·출력 지정과 커버리지 내보내기를 하는 키는 없었다.

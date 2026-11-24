@@ -29,8 +29,7 @@ CT_SAVED = ROOT / 'result' / 'ct_home.txt'
 
 # 절 번호: (메뉴에 찍을 제목, 툴킷 Python에 넘길 인수). 상대 경로는 저장소 루트 기준이다.
 SECTIONS = {
-    '27': ('.utest 전역 변수 항목을 이름으로 짝지어 비교',
-           ['tools/java_probe.py', 'C:/ctsample/out/17', 'C:/ctsample/out/18', CT]),
+    '28': ('실행 전후 파일 비교로 케이스별 분기 데이터 찾기', ['tools/run_diff_probe.py', CT]),
 }
 
 E_NO_SECTION = '없는 절 번호: todo.bat을 다시 열고 위 목록의 번호를 넣기'
