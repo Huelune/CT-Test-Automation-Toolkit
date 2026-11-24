@@ -32,8 +32,8 @@ def snapshot(roots: Sequence[Path]) -> Tuple[Snap, int]:
     def onerror(_exc: OSError) -> None:
         nonlocal bad
         bad += 1
-    for root in roots:
-        for top, _dirs, files in os.walk(str(root), onerror=onerror):
+    for root in roots:  # realpath: 8.3 짧은 이름·대소문자가 달라도 같은 파일은 같은 키
+        for top, _dirs, files in os.walk(os.path.realpath(str(root)), onerror=onerror):
             for name in files:
                 full = os.path.join(top, name)
                 try:
@@ -55,17 +55,19 @@ def diff(before: Snap, after: Snap) -> Dict[str, List[str]]:
 
 def locate(path: str, roots: Sequence[Tuple[str, Path]]) -> Tuple[str, str]:
     """경로를 품은 뿌리 중 가장 깊은 것의 (이름, 상대 경로). 없으면 ('?', 경로)."""
+    real = Path(os.path.realpath(path))
     best: Optional[Tuple[str, Path]] = None
     for name, root in roots:
+        r = Path(os.path.realpath(str(root)))
         try:
-            Path(path).relative_to(root)
+            real.relative_to(r)
         except ValueError:
             continue
-        if best is None or len(root.parts) > len(best[1].parts):
-            best = (name, root)
+        if best is None or len(r.parts) > len(best[1].parts):
+            best = (name, r)
     if best is None:
         return '?', path
-    return best[0], str(Path(path).relative_to(best[1]))
+    return best[0], str(real.relative_to(best[1]))
 
 
 def kind(head: bytes) -> str:
@@ -104,14 +106,14 @@ def names_found(path: Path, limit: int = BIG) -> Optional[int]:
         return None
 
 
-_KEEP_PART = re.compile(r'dmy_.*|ctsample|\.[A-Za-z]\w*|(?:com|org|net|java|javax|jdk|sun)\.[\w.-]+')
+_KEEP_PART = re.compile(r'dmy_\w*|ctsample|\.[A-Za-z]\w*|(?:com|org|net|java|javax|jdk|sun)\.[\w.-]+', re.ASCII)
 
 
 def mask_path(rel: str) -> str:
     out = []
     for part in re.split(r'[\\/]', rel):
         low = part.lower()
-        if _KEEP_PART.fullmatch(part) or 'codescroll' in low or 'suresoft' in low:
+        if part.isascii() and (_KEEP_PART.fullmatch(part) or 'codescroll' in low or 'suresoft' in low):
             out.append(part)
             continue
         ext = re.search(r'\.[A-Za-z0-9]{1,8}$', part)
@@ -124,14 +126,17 @@ def zip_entries(path: Path) -> List[Tuple[str, int, str, Optional[int]]]:
     """(항목 이름 원문, 크기, 꼴, 견본 이름 수). zip이 아니면 []. 이름 원문은 호출한 쪽이 가려서 찍는다."""
     rows: List[Tuple[str, int, str, Optional[int]]] = []
     try:
-        with zipfile.ZipFile(str(path)) as zf:
-            for info in zf.infolist():
-                if info.filename.endswith('/'):
-                    continue
-                with zf.open(info) as f:
-                    head = f.read(512)
-                n = _count(zf.read(info)) if info.file_size <= BIG else None
-                rows.append((info.filename, info.file_size, kind(head), n))
+        zf = zipfile.ZipFile(str(path))
     except (zipfile.BadZipFile, OSError):
         return []
+    with zf:
+        for info in zf.infolist():
+            if info.filename.endswith('/'):
+                continue
+            try:
+                data = zf.read(info) if info.file_size <= BIG else None
+                head = data[:512] if data is not None else zf.open(info).read(512)
+                rows.append((info.filename, info.file_size, kind(head), None if data is None else _count(data)))
+            except Exception:  # 암호·미지원 압축·깨진 항목: 한 항목 때문에 멈추지 않는다
+                rows.append((info.filename, info.file_size, 'unreadable', None))
     return rows

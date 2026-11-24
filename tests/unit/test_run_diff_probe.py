@@ -42,6 +42,8 @@ class PartsTest(unittest.TestCase):
         got = p.mask_path('.metadata/.plugins/com.codescroll.ut.core_1.0.0/secret_prj/dmy_branch_test0.dat')
         self.assertEqual(got, '.metadata\\.plugins\\com.codescroll.ut.core_1.0.0\\aaaaaa_aaa\\dmy_branch_test0.dat')
         self.assertNotIn('secret', got)
+        self.assertNotIn('홍', p.mask_path('com.홍길동/x.dat'))
+        self.assertNotIn('홍', p.mask_path('.홍길동/x.dat'))
         self.assertEqual(p.mask_path('Users\\홍길동\\ctsample\\Run9.bin'), 'Aaaaa\\???\\ctsample\\Aaa9.bin')
 
     def test_snapshot_and_diff(self) -> None:
@@ -91,6 +93,32 @@ class PartsTest(unittest.TestCase):
         self.assertEqual(p.locate(str(f), roots), ('TEMP', 'x.bin'))
         snap, _ = p.snapshot([r for _, r in roots])
         self.assertEqual([k for k in snap if k == str(f)], [str(f)])
+
+    @unittest.skipUnless(os.name == 'nt', '대소문자 다른 경로는 윈도우에서만')
+    def test_roots_spelled_differently_count_once(self) -> None:
+        (self.dir / 'Temp').mkdir()
+        f = self.dir / 'Temp' / 'x.bin'
+        f.write_bytes(b'1')
+        temp = str(self.dir / 'Temp').upper()
+        snap, _ = p.snapshot([self.dir, Path(temp)])
+        self.assertEqual(len(snap), 1)
+        roots = [('LOCALAPPDATA', self.dir), ('TEMP', Path(temp))]
+        self.assertEqual(p.locate(str(f), roots), ('TEMP', 'x.bin'))
+
+    def test_zip_entries_survive_bad_entry(self) -> None:
+        z = self.dir / 'm.zip'
+        with zipfile.ZipFile(z, 'w') as zf:
+            zf.writestr('good.xml', '<r/>')
+            zf.writestr('bad.bin', b'abc')
+        real = zipfile.ZipFile.read
+
+        def fake(self_, item, *a, **k):
+            if getattr(item, 'filename', item) == 'bad.bin':
+                raise RuntimeError('secret')
+            return real(self_, item, *a, **k)
+        with mock.patch.object(zipfile.ZipFile, 'read', fake):
+            rows = p.zip_entries(z)
+        self.assertEqual(rows, [('good.xml', 4, 'xml', 0), ('bad.bin', 3, 'unreadable', None)])
 
     def test_names_found(self) -> None:
         f = self.dir / 'n.bin'
